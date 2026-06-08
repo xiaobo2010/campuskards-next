@@ -99,8 +99,8 @@ function LoginForm() {
         backgroundPosition: "center",
       }}
     >
-      {/* Blur + dark overlay */}
-      <div className="absolute inset-0 backdrop-blur-sm bg-black/60" />
+      {/* Blur + dark overlay (must not block clicks) */}
+      <div className="absolute inset-0 backdrop-blur-sm bg-black/60 pointer-events-none" />
 
       {/* Hero text - stacked above card, no absolute */}
       <motion.div

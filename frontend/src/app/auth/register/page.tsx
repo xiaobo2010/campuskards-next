@@ -90,8 +90,8 @@ export default function RegisterPage() {
         backgroundPosition: "center",
       }}
     >
-      {/* Blur + dark overlay */}
-      <div className="absolute inset-0 backdrop-blur-sm bg-black/60" />
+      {/* Blur + dark overlay (must not block clicks) */}
+      <div className="absolute inset-0 backdrop-blur-sm bg-black/60 pointer-events-none" />
       <Card className="relative z-10 w-full max-w-md border-zinc-800 bg-zinc-900/80 backdrop-blur-sm">
         <form onSubmit={handleSubmit}>
           <CardHeader className="space-y-1 text-center">
