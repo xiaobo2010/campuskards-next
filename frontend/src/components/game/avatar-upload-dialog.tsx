@@ -14,20 +14,13 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { userApi } from "@/lib/api";
-import { API_BASE } from "@/lib/config";
+import { resolveAvatarUrl } from "@/lib/avatar-url";
 
 interface AvatarUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentAvatar?: string | null;
   username?: string;
-}
-
-function resolveAvatarUrl(url: string): string {
-  if (url.startsWith("http") || url.startsWith("/")) {
-    return url.startsWith("/") && API_BASE ? `${API_BASE}${url}` : url;
-  }
-  return url;
 }
 
 export default function AvatarUploadDialog({

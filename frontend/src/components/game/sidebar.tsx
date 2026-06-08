@@ -41,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
+import { UserAvatar } from "@/components/game/user-avatar";
 
 interface NavItem {
   href: string;
@@ -308,12 +309,12 @@ export default function Sidebar() {
                     border: "none",
                   }}
                 >
-                  <div
-                    className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white"
-                    style={{ backgroundColor: "var(--accent)" }}
-                  >
-                    {user.username.charAt(0).toUpperCase()}
-                  </div>
+                  <UserAvatar
+                    username={user.username}
+                    avatarUrl={user.avatar_url}
+                    className="w-8 h-8"
+                    textClassName="text-xs"
+                  />
                   <AnimatePresence initial={false}>
                     {!collapsed && (
                       <motion.div

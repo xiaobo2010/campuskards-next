@@ -9,6 +9,7 @@ import {
   Briefcase,
   Swords,
   Shield,
+  History,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/game", label: "大厅", icon: Home },
   { href: "/game/collection", label: "图鉴", icon: BookOpen },
   { href: "/game/deck-builder", label: "书包", icon: Briefcase },
+  { href: "/game/history", label: "战绩", icon: History },
   { href: "/game/play", label: "对战", icon: Swords, isCenter: true },
   { href: "/game/admin", label: "管理", icon: Shield, adminOnly: true },
 ];

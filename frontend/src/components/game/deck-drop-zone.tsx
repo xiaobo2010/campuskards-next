@@ -19,7 +19,7 @@ import {
 import {
   SortableContext,
   useSortable,
-  horizontalListSortingStrategy,
+  rectSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -403,14 +403,14 @@ function DeckDropZone({
       <div className="w-full">
         {/* Drop zone container */}
         <div
-          className="w-full overflow-x-auto pb-2"
+          className="w-full pb-2"
           role="region"
           aria-label="卡组卡槽区域"
         >
-          <div className="flex items-center gap-2 min-w-min px-2 py-2">
+          <div className="flex flex-wrap items-start gap-2 px-2 py-2">
             <SortableContext
               items={selectedCardIds.map((_, i) => slotId(i))}
-              strategy={horizontalListSortingStrategy}
+              strategy={rectSortingStrategy}
             >
               <AnimatePresence mode="popLayout">
                 {selectedCardIds.map((cardId, index) => {
@@ -426,12 +426,11 @@ function DeckDropZone({
                   );
                 })}
               </AnimatePresence>
-            </SortableContext>
-
             {/* Empty "add" slot — shown when under max */}
             <AnimatePresence mode="popLayout">
               {canAddMore && <EmptySlot key={EMPTY_SLOT_ID} id={EMPTY_SLOT_ID} />}
             </AnimatePresence>
+            </SortableContext>
           </div>
         </div>
 

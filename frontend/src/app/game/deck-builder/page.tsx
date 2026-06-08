@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { collectionApi, decksApi } from "@/lib/api";
 import type { Card, DeckCreateRequest, UserCardOwnership } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
-import { Package, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react";
+import { Package, AlertCircle, RefreshCw, AlertTriangle, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DeckDropZone, DeckLibraryCard } from "@/components/game/deck-drop-zone";
 
@@ -45,13 +46,18 @@ function inferFactionCode(cardIds: string[], cardMap: Record<string, Card>): str
   return sorted[0]?.[0] ?? "key_class";
 }
 
-export default function DeckBuilderPage() {
+function DeckBuilderContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editingDeckId = searchParams.get("deckId");
+  const isEditMode = Boolean(editingDeckId);
+
   const { user } = useAuth();
 
   const [cards, setCards] = useState<Card[]>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
   const [cardsError, setCardsError] = useState<string | null>(null);
+  const [deckLoading, setDeckLoading] = useState(false);
   const [newDeckName, setNewDeckName] = useState("");
   const [creating, setCreating] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -128,6 +134,40 @@ export default function DeckBuilderPage() {
     loadCards();
   }, [loadCards]);
 
+  useEffect(() => {
+    if (!editingDeckId || !user) return;
+
+    let cancelled = false;
+    setDeckLoading(true);
+    decksApi
+      .get(editingDeckId)
+      .then((deck) => {
+        if (cancelled) return;
+        setNewDeckName(deck.name);
+        const expanded: string[] = [];
+        for (const entry of deck.entries ?? []) {
+          for (let i = 0; i < entry.quantity; i++) {
+            expanded.push(entry.card_id);
+          }
+        }
+        setSelectedCardIds(expanded);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error("加载卡组失败", {
+            description: err instanceof Error ? err.message : "请返回卡组列表重试",
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDeckLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editingDeckId, user]);
+
   const filteredCards = useMemo(() => {
     if (typeFilter === "all") return cards;
     return cards.filter((c) => getCategory(c.card_type) === typeFilter);
@@ -151,8 +191,7 @@ export default function DeckBuilderPage() {
         return prev;
       }
       const cat = getCategory(card.card_type);
-      const catKey = cat === "Unit" ? "unit" : cat === "Effect" ? "effect" : "counter";
-      const limit = catKey === "unit" ? UNIT_MAX : catKey === "effect" ? EFFECT_MAX : COUNTER_MAX;
+      const limit = cat === "Unit" ? UNIT_MAX : cat === "Effect" ? EFFECT_MAX : COUNTER_MAX;
       const current = prev.filter((id) => cardMap[id] && getCategory(cardMap[id].card_type) === cat).length;
       if (current >= limit) {
         const catName = cat === "Unit" ? "生物" : cat === "Effect" ? "效果" : "反击";
@@ -163,7 +202,19 @@ export default function DeckBuilderPage() {
     });
   };
 
-  const handleCreateDeck = async () => {
+  const buildDeckRequest = (): DeckCreateRequest => {
+    const counts: Record<string, number> = {};
+    for (const id of selectedCardIds) {
+      counts[id] = (counts[id] ?? 0) + 1;
+    }
+    return {
+      name: newDeckName.trim(),
+      faction_code: inferFactionCode(selectedCardIds, cardMap),
+      cards: Object.entries(counts).map(([card_id, quantity]) => ({ card_id, quantity })),
+    };
+  };
+
+  const handleSaveDeck = async () => {
     if (!newDeckName.trim()) {
       toast.error("请输入卡组名称");
       return;
@@ -175,22 +226,17 @@ export default function DeckBuilderPage() {
 
     setCreating(true);
     try {
-      const counts: Record<string, number> = {};
-      for (const id of selectedCardIds) {
-        counts[id] = (counts[id] ?? 0) + 1;
+      const req = buildDeckRequest();
+      if (isEditMode && editingDeckId) {
+        await decksApi.update(editingDeckId, req);
+        toast.success("卡组已保存！");
+      } else {
+        await decksApi.create(req);
+        toast.success("卡组创建成功！");
       }
-      const req: DeckCreateRequest = {
-        name: newDeckName.trim(),
-        faction_code: inferFactionCode(selectedCardIds, cardMap),
-        cards: Object.entries(counts).map(([card_id, quantity]) => ({ card_id, quantity })),
-      };
-      await decksApi.create(req);
-      toast.success("卡组创建成功！");
-      setNewDeckName("");
-      setSelectedCardIds([]);
-      router.push("/game/decks");
+      router.replace("/game/decks");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "创建失败";
+      const msg = err instanceof Error ? err.message : isEditMode ? "保存失败" : "创建失败";
       toast.error(msg);
     } finally {
       setCreating(false);
@@ -200,131 +246,176 @@ export default function DeckBuilderPage() {
   if (!user) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="px-4 py-6 lg:py-8 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <Input
-          placeholder="输入卡组名称..."
-          value={newDeckName}
-          onChange={(e) => setNewDeckName(e.target.value)}
-          className="flex-1 bg-zinc-900 border-zinc-700"
-        />
-        <Button onClick={handleCreateDeck} disabled={creating}>
-          {creating ? "创建中..." : "确认创建"}
-        </Button>
+        <Link href="/game/decks">
+          <Button variant="ghost" size="icon" className="text-zinc-400 hover:text-zinc-100">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-xl font-bold text-zinc-100">
+            {isEditMode ? "编辑卡组" : "创建卡组"}
+          </h1>
+          <p className="text-sm text-zinc-500">拖拽或点击添加卡牌，凑满 {DECK_SIZE} 张</p>
+        </div>
       </div>
 
-      <DeckDropZone
-        selectedCardIds={selectedCardIds}
-        cardMap={cardMap}
-        maxCards={DECK_SIZE}
-        limits={{ unit: UNIT_MAX, effect: EFFECT_MAX, counter: COUNTER_MAX }}
-        counts={categoryCounts}
-        onChange={setSelectedCardIds}
-      >
-        {warnings.length > 0 && (
-          <div className="flex items-center gap-2 p-2 rounded bg-amber-900/20 border border-amber-900/50 mt-3">
-            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-            <div className="flex flex-wrap gap-2 text-sm text-amber-300">
-              {warnings.map((w, i) => (
-                <span key={i}>{w}</span>
-              ))}
-            </div>
+      {deckLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-full max-w-md" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-xl">
+            <Input
+              placeholder="输入卡组名称..."
+              value={newDeckName}
+              onChange={(e) => setNewDeckName(e.target.value)}
+              className="flex-1 bg-zinc-900 border-zinc-700"
+            />
+            <Button onClick={handleSaveDeck} disabled={creating} className="sm:min-w-[120px]">
+              {creating
+                ? isEditMode
+                  ? "保存中..."
+                  : "创建中..."
+                : isEditMode
+                  ? "保存修改"
+                  : "确认创建"}
+            </Button>
           </div>
-        )}
 
-        <CardComponent className="mt-4">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-sm">卡牌库</CardTitle>
-                <span
-                  className={cn(
-                    "text-xs font-mono px-1.5 rounded",
-                    deckSize < DECK_SIZE
-                      ? "bg-zinc-800 text-zinc-400"
-                      : "bg-emerald-900 text-emerald-300"
-                  )}
-                >
-                  已选 {deckSize}/{DECK_SIZE}
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                {(["all", "Unit", "Effect", "Counter"] as const).map((f) => (
-                  <Button
-                    key={f}
-                    variant={typeFilter === f ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setTypeFilter(f)}
-                    className="h-7 text-xs px-2"
-                  >
-                    {f === "all"
-                      ? "全部"
-                      : f === "Unit"
-                        ? "生物"
-                        : f === "Effect"
-                          ? "效果"
-                          : "反击"}
-                  </Button>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 ml-1"
-                  onClick={loadCards}
-                >
-                  <RefreshCw className={cn("h-3 w-3", cardsLoading && "animate-spin")} />
-                </Button>
-              </div>
-            </div>
-            <CardDescription className="text-xs mt-1">
-              拖拽或点击添加卡牌（单卡最多 {MAX_COPIES} 张）· 生物 {categoryCounts.unit}/{UNIT_MAX} ·
-              效果 {categoryCounts.effect}/{EFFECT_MAX} · 反击 {categoryCounts.counter}/{COUNTER_MAX}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-3 pt-0 space-y-3">
-            {cardsLoading && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 rounded" />
-                ))}
+          <DeckDropZone
+            selectedCardIds={selectedCardIds}
+            cardMap={cardMap}
+            maxCards={DECK_SIZE}
+            limits={{ unit: UNIT_MAX, effect: EFFECT_MAX, counter: COUNTER_MAX }}
+            counts={categoryCounts}
+            onChange={setSelectedCardIds}
+          >
+            {warnings.length > 0 && (
+              <div className="flex items-center gap-2 p-2 rounded bg-amber-900/20 border border-amber-900/50 mt-3">
+                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                <div className="flex flex-wrap gap-2 text-sm text-amber-300">
+                  {warnings.map((w, i) => (
+                    <span key={i}>{w}</span>
+                  ))}
+                </div>
               </div>
             )}
 
-            {cardsError && (
-              <div className="flex items-center gap-2 text-sm text-red-400">
-                <AlertCircle className="h-4 w-4" />
-                {cardsError}
-              </div>
-            )}
+            <CardComponent className="mt-4 border-zinc-800 bg-zinc-900/70">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm">卡牌库</CardTitle>
+                    <span
+                      className={cn(
+                        "text-xs font-mono px-1.5 rounded",
+                        deckSize < DECK_SIZE
+                          ? "bg-zinc-800 text-zinc-400"
+                          : "bg-emerald-900 text-emerald-300"
+                      )}
+                    >
+                      已选 {deckSize}/{DECK_SIZE}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {(["all", "Unit", "Effect", "Counter"] as const).map((f) => (
+                      <Button
+                        key={f}
+                        variant={typeFilter === f ? "default" : "ghost"}
+                        size="sm"
+                        onClick={() => setTypeFilter(f)}
+                        className="h-7 text-xs px-2"
+                      >
+                        {f === "all"
+                          ? "全部"
+                          : f === "Unit"
+                            ? "生物"
+                            : f === "Effect"
+                              ? "效果"
+                              : "反击"}
+                      </Button>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 ml-1"
+                      onClick={loadCards}
+                    >
+                      <RefreshCw className={cn("h-3 w-3", cardsLoading && "animate-spin")} />
+                    </Button>
+                  </div>
+                </div>
+                <CardDescription className="text-xs mt-1">
+                  拖拽或点击添加卡牌（单卡最多 {MAX_COPIES} 张）· 生物 {categoryCounts.unit}/{UNIT_MAX} ·
+                  效果 {categoryCounts.effect}/{EFFECT_MAX} · 反击 {categoryCounts.counter}/{COUNTER_MAX}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-3 pt-0 space-y-3">
+                {cardsLoading && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <Skeleton key={i} className="h-12 rounded" />
+                    ))}
+                  </div>
+                )}
 
-            {!cardsLoading && !cardsError && cards.length === 0 && (
-              <div className="text-center py-6 text-zinc-500 text-sm">
-                <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>你还没有任何卡牌</p>
-                <p className="text-xs mt-1">去卡包商店抽一些吧！</p>
-              </div>
-            )}
+                {cardsError && (
+                  <div className="flex items-center gap-2 text-sm text-red-400">
+                    <AlertCircle className="h-4 w-4" />
+                    {cardsError}
+                  </div>
+                )}
 
-            {!cardsLoading && !cardsError && cards.length > 0 && filteredCards.length === 0 && (
-              <p className="text-sm text-zinc-500 text-center py-4">没有匹配的卡牌</p>
-            )}
+                {!cardsLoading && !cardsError && cards.length === 0 && (
+                  <div className="text-center py-6 text-zinc-500 text-sm">
+                    <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>你还没有任何卡牌</p>
+                    <p className="text-xs mt-1">去卡包商店抽一些吧！</p>
+                  </div>
+                )}
 
-            {!cardsLoading && !cardsError && cards.length > 0 && (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {filteredCards.map((card) => (
-                  <DeckLibraryCard
-                    key={card.id}
-                    card={card}
-                    isSelected={(copyCounts[card.id] ?? 0) > 0}
-                    copyCount={copyCounts[card.id] ?? 0}
-                    onClick={() => toggleCard(card.id)}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </CardComponent>
-      </DeckDropZone>
+                {!cardsLoading && !cardsError && cards.length > 0 && filteredCards.length === 0 && (
+                  <p className="text-sm text-zinc-500 text-center py-4">没有匹配的卡牌</p>
+                )}
+
+                {!cardsLoading && !cardsError && cards.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {filteredCards.map((card) => (
+                      <DeckLibraryCard
+                        key={card.id}
+                        card={card}
+                        isSelected={(copyCounts[card.id] ?? 0) > 0}
+                        copyCount={copyCounts[card.id] ?? 0}
+                        onClick={() => toggleCard(card.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </CardComponent>
+          </DeckDropZone>
+        </>
+      )}
     </div>
+  );
+}
+
+export default function DeckBuilderPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="px-4 py-8 max-w-6xl mx-auto space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-10 w-full max-w-md" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      }
+    >
+      <DeckBuilderContent />
+    </Suspense>
   );
 }

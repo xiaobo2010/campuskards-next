@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatFaction } from "@/lib/faction-labels";
 
 const RESULT_LABEL: Record<string, string> = {
   win: "胜利",
@@ -197,7 +198,7 @@ export default function MatchReportPage() {
                 </div>
                 <p className="font-medium text-zinc-100">{me.username}</p>
                 <p className="text-xs text-zinc-500">
-                  {me.deck_faction} · ELO {me.elo}
+                  {formatFaction(me.deck_faction)} · ELO {me.elo}
                   {finalHp != null && ` · 终局 HP ${finalHp}`}
                 </p>
                 {match.mode === "ranked" && myEloChange !== 0 && (
@@ -218,7 +219,7 @@ export default function MatchReportPage() {
                 </div>
                 <p className="font-medium text-zinc-100">{opp.username}</p>
                 <p className="text-xs text-zinc-500">
-                  {opp.deck_faction} · ELO {opp.elo}
+                  {formatFaction(opp.deck_faction)} · ELO {opp.elo}
                   {oppFinalHp != null && ` · 终局 HP ${oppFinalHp}`}
                 </p>
               </div>

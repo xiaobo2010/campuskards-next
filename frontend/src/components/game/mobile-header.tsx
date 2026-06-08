@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { DEMO_MODE_ENABLED } from "@/lib/api";
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
+import { UserAvatar } from "@/components/game/user-avatar";
 
 export default function MobileHeader() {
   const pathname = usePathname();
@@ -94,12 +95,12 @@ export default function MobileHeader() {
             style={{ color: "var(--text-secondary)" }}
             aria-label="用户菜单"
           >
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
-              style={{ backgroundColor: "var(--accent)" }}
-            >
-              {user.username.charAt(0).toUpperCase()}
-            </div>
+            <UserAvatar
+              username={user.username}
+              avatarUrl={user.avatar_url}
+              className="w-7 h-7"
+              textClassName="text-xs"
+            />
             <span className="text-sm font-medium hidden sm:inline max-w-[80px] truncate">
               {user.username}
             </span>
@@ -245,7 +246,12 @@ export default function MobileHeader() {
             </motion.nav>
           </>
         )}
-        <AvatarUploadDialog open={avatarDialog} onOpenChange={setAvatarDialog} />
+        <AvatarUploadDialog
+          open={avatarDialog}
+          onOpenChange={setAvatarDialog}
+          currentAvatar={user?.avatar_url}
+          username={user?.username}
+        />
       </AnimatePresence>
     </>
   );

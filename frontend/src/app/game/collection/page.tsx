@@ -9,12 +9,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { cardsApi, api } from "@/lib/api";
+import { cardsApi, collectionApi, ApiError } from "@/lib/api";
 import { CardDetailModal } from "@/components/game/card-detail-modal";
 import CardPlaceholder from "@/components/game/card-placeholder";
 import { useAuth } from "@/lib/auth-context";
 import type { Card, UserCardOwnership, UpgradeResult } from "@/types";
 import { cn } from "@/lib/utils";
+import { FACTION_LABEL } from "@/lib/faction-labels";
 
 const RARITY_COLORS: Record<string, string> = {
   common: "border-zinc-500/40",
@@ -47,6 +48,7 @@ export default function CollectionPage() {
   const [ownedSet, setOwnedSet] = useState<Set<string>>(new Set());
   const [ownedMap, setOwnedMap] = useState<Map<string, UserCardOwnership>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -58,33 +60,39 @@ export default function CollectionPage() {
     type: "",
     owned: "",
   });
-  const { setUserInk } = useAuth();
+  const { user, setUserInk } = useAuth();
 
   const fetchData = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
+    setFetchError(null);
     try {
       const allCardsRes = await cardsApi.list({ page: 1, page_size: 500, fetchAll: true });
-      setCards(allCardsRes.items);
+      setCards(allCardsRes.items ?? []);
 
-      const ownedRes = await api.get<UserCardOwnership[]>("/api/collection");
+      const ownedRes = await collectionApi.list();
       const ids = new Set<string>();
       const map = new Map<string, UserCardOwnership>();
-      for (const o of ownedRes) {
+      for (const o of ownedRes ?? []) {
         ids.add(o.card_id);
         map.set(o.card_id, o);
       }
       setOwnedSet(ids);
       setOwnedMap(map);
     } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "加载图鉴失败，请稍后重试";
+      setFetchError(msg);
       console.error("Failed to fetch collection:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (user) {
+      fetchData();
+    }
+  }, [user, fetchData]);
 
   const filteredCards = useMemo(() => {
     return cards.filter((c) => {
@@ -170,11 +178,13 @@ export default function CollectionPage() {
                 className="px-3 py-2 bg-muted border border-border rounded-lg text-sm focus:outline-none"
               >
                 <option value="">全部势力</option>
-                <option value="elite">精英</option>
-                <option value="arts">艺术</option>
-                <option value="mass">大众</option>
-                <option value="global">全球</option>
-                <option value="rush">速攻</option>
+                {Object.entries(FACTION_LABEL)
+                  .filter(([code]) => code.endsWith("_class") || code === "neutral")
+                  .map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
               </select>
 
               <select
@@ -222,6 +232,19 @@ export default function CollectionPage() {
                 <option value="unowned">未拥有</option>
               </select>
             </div>
+
+            {fetchError && (
+              <div className="mb-6 rounded-lg border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-4">
+                <span>{fetchError}</span>
+                <button
+                  type="button"
+                  onClick={fetchData}
+                  className="shrink-0 px-3 py-1 rounded bg-red-900/50 hover:bg-red-900 text-red-100"
+                >
+                  重试
+                </button>
+              </div>
+            )}
 
             {/* Card Grid */}
             {loading ? (

@@ -264,7 +264,7 @@ export default function ShopPage() {
       : undefined;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen p-6 space-y-6 bg-gradient-to-br from-zinc-950 via-zinc-900 to-purple-950/40">
       {/* Check-in Banner */}
       <CheckInBanner
         onInkUpdate={(newInk) => setInk(newInk)}

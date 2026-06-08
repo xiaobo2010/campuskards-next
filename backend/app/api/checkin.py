@@ -13,6 +13,30 @@ from app.api.auth import _get_current_user
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
 
+_table_ready = False
+
+
+async def _ensure_checkins_table(db: AsyncSession) -> None:
+    """Create user_checkins table on first use if migration was not run."""
+    global _table_ready
+    if _table_ready:
+        return
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS user_checkins (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                checkin_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                streak INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(user_id, checkin_date)
+            )
+            """
+        )
+    )
+    await db.commit()
+    _table_ready = True
+
 
 class CheckinStatusResponse(BaseModel):
     checked_in_today: bool
@@ -79,6 +103,7 @@ async def checkin_status(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinStatusResponse:
+    await _ensure_checkins_table(db)
     streak, checked_in, total = await _get_streak_info(db, str(user.id))
     display_streak = streak if checked_in else (streak if streak > 0 else 0)
     return CheckinStatusResponse(
@@ -94,6 +119,7 @@ async def daily_checkin(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinResponse:
+    await _ensure_checkins_table(db)
     today = date.today()
     yesterday = today - timedelta(days=1)
 

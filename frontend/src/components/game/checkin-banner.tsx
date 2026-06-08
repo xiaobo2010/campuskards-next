@@ -2,11 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Check, Loader2 } from "lucide-react";
+import { Calendar, Check, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { checkinApi, ApiError } from "@/lib/api";
+
+const REWARD_RULES = [
+  { label: "每日基础", ink: 200 },
+  { label: "连续 3 天", ink: 300 },
+  { label: "连续 7 天", ink: 400 },
+  { label: "连续 14 天", ink: 500 },
+];
 
 interface CheckInBannerProps {
   onInkUpdate?: (newInk: number) => void;
@@ -19,6 +31,7 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
   const [todayReward, setTodayReward] = useState(200);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [serviceError, setServiceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -34,8 +47,15 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
         setStreak(status.streak);
         setAlreadyCheckedIn(status.checked_in_today);
         setTodayReward(status.next_reward.ink);
-      } catch {
-        // non-critical
+        setServiceError(null);
+      } catch (error) {
+        if (!cancelled) {
+          const msg =
+            error instanceof ApiError
+              ? error.message
+              : "签到服务暂时不可用，请稍后重试";
+          setServiceError(msg);
+        }
       } finally {
         if (!cancelled) setInitialLoading(false);
       }
@@ -52,6 +72,7 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
       const data = await checkinApi.checkin();
       setStreak(data.streak);
       setAlreadyCheckedIn(true);
+      setServiceError(null);
 
       await refreshUser?.();
       if (onInkUpdate && user) {
@@ -62,9 +83,9 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
         description: data.reward.ink > 0 ? `获得 ${data.reward.ink} 墨水` : "今日已签到",
       });
     } catch (error) {
-      toast.error("签到失败", {
-        description: error instanceof ApiError ? error.message : "未知错误",
-      });
+      const msg = error instanceof ApiError ? error.message : "未知错误";
+      setServiceError(msg);
+      toast.error("签到失败", { description: msg });
     } finally {
       setLoading(false);
     }
@@ -82,7 +103,7 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
       className="mb-6"
     >
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-600 via-purple-500 to-blue-500 p-1 shadow-xl">
-        <div className="relative flex items-center justify-between rounded-xl bg-gradient-to-r from-purple-600/95 via-purple-500/95 to-blue-500/95 px-6 py-5 backdrop-blur-sm">
+        <div className="relative flex flex-wrap items-center justify-between gap-4 rounded-xl bg-gradient-to-r from-purple-600/95 via-purple-500/95 to-blue-500/95 px-6 py-5 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
               <Calendar className="h-6 w-6 text-white" />
@@ -90,6 +111,9 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
             <div>
               <h3 className="text-lg font-bold text-white">每日签到</h3>
               <p className="text-sm text-white/80">连续签到 {streak} 天</p>
+              {serviceError && (
+                <p className="text-xs text-red-200 mt-1">{serviceError}</p>
+              )}
             </div>
           </div>
 
@@ -98,7 +122,32 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
             <p className="text-2xl font-bold text-white">+{todayReward} 墨水</p>
           </div>
 
-          <div>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 text-white hover:bg-white/20 hover:text-white"
+                  aria-label="签到规则"
+                >
+                  <Info className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 p-3">
+                <p className="text-sm font-semibold mb-2">签到奖励规则</p>
+                <ul className="space-y-1.5 text-sm text-muted-foreground">
+                  {REWARD_RULES.map((rule) => (
+                    <li key={rule.label} className="flex justify-between gap-4">
+                      <span>{rule.label}</span>
+                      <span className="font-medium text-foreground">+{rule.ink} 墨水</span>
+                    </li>
+                  ))}
+                </ul>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               onClick={handleCheckIn}
               disabled={alreadyCheckedIn || loading}
@@ -128,13 +177,6 @@ export function CheckInBanner({ onInkUpdate }: CheckInBannerProps) {
           <div className="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -left-8 -bottom-8 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
         </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 justify-center text-xs text-zinc-400">
-        <span className="px-2 py-1 rounded bg-zinc-800/50">基础: +200</span>
-        <span className="px-2 py-1 rounded bg-zinc-800/50">3天: +300</span>
-        <span className="px-2 py-1 rounded bg-zinc-800/50">7天: +400</span>
-        <span className="px-2 py-1 rounded bg-zinc-800/50">14天: +500</span>
       </div>
     </motion.div>
   );

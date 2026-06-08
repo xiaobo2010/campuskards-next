@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, Briefcase, Swords, Store, Shield } from "lucide-react";
+import { BookOpen, Briefcase, Swords, Store, Shield, History } from "lucide-react";
 import Link from "next/link";
 import {
   Card,
@@ -61,6 +61,14 @@ export default function GameLobbyPage() {
         emoji: "📖",
         description: "浏览你的卡牌收藏",
         gradient: "from-green-500/10 to-emerald-500/10",
+      },
+      {
+        href: "/game/history",
+        icon: History,
+        title: "对战历史",
+        emoji: "📜",
+        description: "查看战绩、ELO 走势与战报",
+        gradient: "from-indigo-500/10 to-violet-500/10",
       },
     ];
     if (user?.role === "admin") {

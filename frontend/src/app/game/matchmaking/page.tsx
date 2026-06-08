@@ -12,6 +12,7 @@ import { decksApi, matchApi, ApiError } from "@/lib/api";
 import { useMatchStore } from "@/store/useMatchStore";
 import type { DeckListItem } from "@/types";
 import { toast } from "sonner";
+import { formatFaction } from "@/lib/faction-labels";
 
 type MatchMode = "quick" | "ranked";
 type MatchState = "idle" | "searching" | "found";
@@ -182,7 +183,7 @@ export default function MatchmakingPage() {
                       >
                         {decks.map((d) => (
                           <option key={d.id} value={d.id}>
-                            {d.name} ({d.faction_code}) · {d.card_count ?? "?"} 张
+                            {d.name} ({formatFaction(d.faction_code)}) · {d.card_count ?? "?"} 张
                           </option>
                         ))}
                       </select>

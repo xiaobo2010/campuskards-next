@@ -7,13 +7,11 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  Heart,
   Swords,
   Flag,
   Loader2,
   Wifi,
   WifiOff,
-  Droplets,
   SkipForward,
   Shield,
 } from "lucide-react";
@@ -30,6 +28,7 @@ import BattleCard, {
   PlacementSlot,
 } from "@/components/game/battle/battle-card";
 import BattleResultScreen from "@/components/game/battle/battle-result-screen";
+import { HpBar, InkBadge } from "@/components/game/battle/battle-hud";
 import type { BattleUnit, GameOverPayload, GameStatePayload } from "@/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -47,29 +46,6 @@ const MAX_SUPPORT_SLOTS = 4;
 function isDeployableCard(card: BattleUnit): boolean {
   const t = (card.card_type ?? "character").toLowerCase();
   return t === "character" || t === "unit";
-}
-
-function HpBar({ hp, maxHp }: { hp: number; maxHp: number }) {
-  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500" />
-        <span className="text-xs font-mono text-zinc-300">
-          {hp}/{maxHp}
-        </span>
-      </div>
-      <div className="h-1.5 w-full max-w-[8rem] rounded-full bg-zinc-800 overflow-hidden">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all duration-500",
-            pct > 50 ? "bg-red-500" : pct > 25 ? "bg-amber-500" : "bg-red-600 animate-pulse"
-          )}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
 }
 
 function LineRow({
@@ -483,11 +459,10 @@ function PlayPageInner() {
                 <>
                   <CardBackStack count={opp.hand_count ?? opp.hand?.length ?? 0} />
                   <div className="text-right">
-                    {opp && <HpBar hp={opp.hp} maxHp={opp.max_hp} />}
-                    <p className="text-[10px] text-zinc-500 mt-1 flex items-center justify-end gap-0.5">
-                      <Droplets className="w-3 h-3 text-sky-400" />
-                      {opp.ink}/{opp.max_ink}
-                    </p>
+                    <HpBar hp={opp.hp} maxHp={opp.max_hp} compact />
+                    <div className="mt-1 flex justify-end">
+                      <InkBadge ink={opp.ink} max={opp.max_ink} />
+                    </div>
                   </div>
                 </>
               )}
@@ -557,14 +532,8 @@ function PlayPageInner() {
             <div className="flex items-center justify-between mb-3">
               <HpBar hp={me.hp} maxHp={me.max_hp} />
               <div className="text-right text-xs text-zinc-500 space-y-0.5">
-                <p className="flex items-center justify-end gap-1">
-                  <Droplets className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="font-mono text-sky-300">
-                    {me.ink}/{me.max_ink}
-                  </span>
-                  <span className="text-zinc-600">墨水</span>
-                </p>
-                <p>牌库 {me.deck_count} · 墓地 {me.pen_count}</p>
+                <InkBadge ink={me.ink} max={me.max_ink} />
+                <p className="mt-1">牌库 {me.deck_count} · 墓地 {me.pen_count}</p>
               </div>
             </div>
             <div className="space-y-3">
