@@ -211,6 +211,9 @@ function LoginForm() {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-zinc-300">重置Key（管理员提供）</Label>
+                      <p className="text-xs text-zinc-500">
+                        联系管理团队:13306673106@163.com , 我们会为您提供一次性重置密钥。
+                      </p>
                       <Input
                         value={rpKey}
                         onChange={(e) => setRpKey(e.target.value)}
