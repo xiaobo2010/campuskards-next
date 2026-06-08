@@ -50,22 +50,28 @@ async def game_websocket(
             payload = raw.get("payload") or {}
 
             try:
+                finalize_result = None
+
                 if event == "join_match":
                     await game_manager.handle_join(room, user_id)
+                    if room.game.game_over:
+                        async with async_session() as db:
+                            finalize_result = await game_manager.finalize_if_over(room, db)
 
                 elif event == "play_card":
-                    await game_manager.handle_play_card(
+                    finalize_result = await game_manager.handle_play_card(
                         room,
                         user_id,
                         str(payload.get("card_id", "")),
                         str(payload.get("position", "front")),
                         payload.get("slot"),
+                        str(payload.get("target_id")) if payload.get("target_id") else None,
                     )
 
                 elif event == "attack":
                     attacker_ids = payload.get("attacker_ids") or []
                     target_id = payload.get("target_id")
-                    await game_manager.handle_attack(
+                    finalize_result = await game_manager.handle_attack(
                         room,
                         user_id,
                         [str(a) for a in attacker_ids],
@@ -73,13 +79,15 @@ async def game_websocket(
                     )
 
                 elif event == "end_turn":
-                    await game_manager.handle_end_turn(room, user_id)
+                    finalize_result = await game_manager.handle_end_turn(room, user_id)
 
                 elif event == "use_ability":
-                    await websocket.send_json({
-                        "event": "error",
-                        "payload": {"detail": "能力系统尚未实现"},
-                    })
+                    finalize_result = await game_manager.handle_use_ability(
+                        room,
+                        user_id,
+                        str(payload.get("card_id", "")),
+                        str(payload.get("target_id")) if payload.get("target_id") else None,
+                    )
 
                 else:
                     await websocket.send_json({
@@ -87,10 +95,8 @@ async def game_websocket(
                         "payload": {"detail": f"未知事件: {event}"},
                     })
 
-                async with async_session() as db:
-                    result = await game_manager.finalize_if_over(room, db)
-                    if result:
-                        break
+                if finalize_result:
+                    break
 
             except GameError as exc:
                 await websocket.send_json({"event": "error", "payload": {"detail": str(exc)}})

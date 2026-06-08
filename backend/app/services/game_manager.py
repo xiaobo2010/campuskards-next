@@ -12,7 +12,7 @@ from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.game_engine import GameError, GameState, Phase, create_game
+from app.core.game_engine import GameError, GameState, Phase, create_game, is_unit_card
 from app.core.database import async_session
 from app.core.game_protocol import (
     TIMER_WARNING_SECONDS,
@@ -53,6 +53,7 @@ class GameRoom:
     turn_deadline: float | None = None
     _timer_generation: int = 0
     _warning_sent: bool = False
+    _finalized: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def player_slot(self, user_id: str) -> int | None:
@@ -80,8 +81,16 @@ class GameManager:
         ticket: MatchTicket,
         p1_cards: list[dict],
         p2_cards: list[dict],
+        *,
+        p1_starting_hp: int = 30,
+        p2_starting_hp: int = 30,
     ) -> GameRoom:
-        game = create_game(p1_cards, p2_cards)
+        game = create_game(
+            p1_cards,
+            p2_cards,
+            p1_starting_hp=p1_starting_hp,
+            p2_starting_hp=p2_starting_hp,
+        )
         room = GameRoom(
             match_id=ticket.match_id,
             mode=ticket.mode,
@@ -172,14 +181,10 @@ class GameManager:
             })
             await self._persist_room(room)
 
-        if room.game.game_over:
-            async with async_session() as db:
-                await self.finalize_if_over(room, db)
+        if await self._after_action(room):
             return
 
         await self._begin_turn(room)
-        async with async_session() as db:
-            await self.finalize_if_over(room, db)
 
     async def _begin_turn(self, room: GameRoom) -> None:
         self._arm_turn_timer(room)
@@ -202,6 +207,7 @@ class GameManager:
             return None
 
         room = self._room_from_data(data)
+        room._finalized = data.get("finalized", False)
         async with self._lock:
             self._rooms[match_id] = room
         if not room.game.game_over and room.turn_deadline and room.turn_deadline > time.time():
@@ -252,7 +258,8 @@ class GameManager:
         card_id: str,
         position: str,
         slot: int | None = None,
-    ) -> None:
+        target_id: str | None = None,
+    ) -> dict[str, Any] | None:
         async with room.lock:
             player = room.player_slot(user_id)
             if player is None or room.game.current_player != player:
@@ -268,22 +275,72 @@ class GameManager:
             if not card:
                 raise GameError(f"Card {card_id} not in hand")
 
-            target_line = side.front_line if line == "front" else side.support_line
-            if slot is not None and 0 <= slot < len(target_line):
-                if len(target_line) >= (5 if line == "front" else 4):
+            if is_unit_card(card.card_type):
+                target_line = side.front_line if line == "front" else side.support_line
+                max_len = 5 if line == "front" else 4
+                if len(target_line) >= max_len:
                     raise GameError(f"{line} line is full")
+                insert_slot = slot if slot is not None else len(target_line)
+                played = room.game.deploy(card.uid, line, slot=insert_slot)
+                await self._broadcast(room, "card_played", {
+                    "player": player_key(player),
+                    "card_id": played.card_id,
+                    "instance_id": played.uid,
+                    "position": position,
+                    "slot": insert_slot,
+                    "card_type": "unit",
+                })
+            else:
+                played = room.game.play_spell(card.uid, target_uid=target_id)
+                await self._broadcast(room, "card_played", {
+                    "player": player_key(player),
+                    "card_id": played.card_id,
+                    "instance_id": played.uid,
+                    "position": None,
+                    "slot": None,
+                    "card_type": played.card_type,
+                })
 
-            deployed = room.game.deploy(card.uid, line)
-            await self._broadcast(room, "card_played", {
+            await self._broadcast_states(room)
+            await self._persist_room(room)
+            await self._check_game_over(room)
+
+        return await self._after_action(room)
+
+    async def handle_use_ability(
+        self,
+        room: GameRoom,
+        user_id: str,
+        card_id: str,
+        target_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        async with room.lock:
+            player = room.player_slot(user_id)
+            if player is None or room.game.current_player != player:
+                raise GameError("Not your turn")
+
+            side = room.game.battlefield.side_for(player)
+            unit = room.game._find_in_list(side.all_units, card_id)
+            if not unit:
+                for u in side.all_units:
+                    if u.card_id == card_id:
+                        unit = u
+                        break
+            if not unit:
+                raise GameError(f"Unit {card_id} not on battlefield")
+
+            room.game.use_ability(unit.uid, target_uid=target_id)
+            await self._broadcast(room, "ability_used", {
                 "player": player_key(player),
-                "card_id": deployed.card_id,
-                "instance_id": deployed.uid,
-                "position": position,
-                "slot": slot if slot is not None else len(target_line) - 1,
+                "card_id": unit.card_id,
+                "instance_id": unit.uid,
+                "target_id": target_id,
             })
             await self._broadcast_states(room)
             await self._persist_room(room)
             await self._check_game_over(room)
+
+        return await self._after_action(room)
 
     async def handle_attack(
         self,
@@ -291,7 +348,7 @@ class GameManager:
         user_id: str,
         attacker_ids: list[str],
         target_id: str | None,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         async with room.lock:
             player = room.player_slot(user_id)
             if player is None or room.game.current_player != player:
@@ -319,7 +376,9 @@ class GameManager:
             await self._persist_room(room)
             await self._check_game_over(room)
 
-    async def handle_end_turn(self, room: GameRoom, user_id: str) -> None:
+        return await self._after_action(room)
+
+    async def handle_end_turn(self, room: GameRoom, user_id: str) -> dict[str, Any] | None:
         async with room.lock:
             player = room.player_slot(user_id)
             if player is None or room.game.current_player != player:
@@ -331,6 +390,8 @@ class GameManager:
 
         if not room.game.game_over:
             await self._begin_turn(room)
+            return None
+        return await self._after_action(room)
 
     async def handle_surrender(self, room: GameRoom, user_id: str, db: AsyncSession) -> dict[str, Any]:
         async with room.lock:
@@ -343,13 +404,31 @@ class GameManager:
             return await self._finalize(room, db, reason="surrender", loser_id=user_id)
 
     async def finalize_if_over(self, room: GameRoom, db: AsyncSession) -> dict[str, Any] | None:
-        if not room.game.game_over or not room.game.winner:
+        if room._finalized or not room.game.game_over or not room.game.winner:
             return None
+
+        try:
+            match_row = await db.get(Match, uuid.UUID(room.match_id))
+        except ValueError:
+            match_row = None
+        if match_row and match_row.ended_at:
+            room._finalized = True
+            return None
+
         loser_id = room.p2_id if room.game.winner == 1 else room.p1_id
         return await self._finalize(room, db, reason="combat", loser_id=loser_id)
 
     async def _check_game_over(self, room: GameRoom) -> None:
-        pass
+        """Ensure clients see terminal state when HP reaches zero mid-action."""
+        if room.game.game_over:
+            await self._broadcast_states(room)
+
+    async def _after_action(self, room: GameRoom) -> dict[str, Any] | None:
+        """Finalize match when the engine reports game over."""
+        if not room.game.game_over or not room.game.winner:
+            return None
+        async with async_session() as db:
+            return await self.finalize_if_over(room, db)
 
     async def _finalize(
         self,
@@ -359,6 +438,10 @@ class GameManager:
         reason: str,
         loser_id: str,
     ) -> dict[str, Any]:
+        if room._finalized:
+            return {}
+
+        room._finalized = True
         winner_id = room.p1_id if room.game.winner == 1 else room.p2_id
         winner = await db.get(User, uuid.UUID(winner_id))
         loser = await db.get(User, uuid.UUID(loser_id))
@@ -488,6 +571,9 @@ async def expand_deck_cards(db: AsyncSession, deck: Deck) -> list[dict]:
                 "grit": card.grit or 0,
                 "spirit": card.spirit or 1,
                 "faction_code": card.faction_code,
-                "card_type": card.card_type,
+                "card_type": card.card_type or "character",
+                "effect_text": card.effect_text or "",
+                "effect_code": card.effect_code or "",
+                "subtype": getattr(card, "subtype", None),
             })
     return expanded

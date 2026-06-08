@@ -55,6 +55,16 @@ async def _start_match(
 
     p1_cards = await expand_deck_cards(db, p1_deck)
     p2_cards = await expand_deck_cards(db, p2_deck)
+    if len(p1_cards) < 30 or len(p2_cards) < 30:
+        raise HTTPException(
+            status_code=400,
+            detail=f"卡组卡牌不足 30 张（P1: {len(p1_cards)}, P2: {len(p2_cards)}）",
+        )
+
+    p1_user = await db.get(User, uuid.UUID(ticket.p1_id))
+    p2_user = await db.get(User, uuid.UUID(ticket.p2_id))
+    p1_hp = 30 + (p1_user.hq_bonus_hp if p1_user else 0)
+    p2_hp = 30 + (p2_user.hq_bonus_hp if p2_user else 0)
 
     match_row = Match(
         id=uuid.UUID(ticket.match_id),
@@ -67,9 +77,16 @@ async def _start_match(
     db.add(match_row)
     await db.commit()
 
-    room = await game_manager.create_room(ticket, p1_cards, p2_cards)
+    room = await game_manager.create_room(
+        ticket,
+        p1_cards,
+        p2_cards,
+        p1_starting_hp=p1_hp,
+        p2_starting_hp=p2_hp,
+    )
     room.p1_faction = p1_deck.faction_code
     room.p2_faction = p2_deck.faction_code
+    await game_manager._persist_room(room)
 
 
 @router.post("/queue", response_model=MatchQueueResponse)
@@ -108,6 +125,13 @@ async def join_queue(
 
     if ticket:
         await _start_match(db, ticket)
+        return MatchQueueResponse(
+            status="matched",
+            mode=body.mode,
+            queue_position=0,
+            estimated_wait=0,
+            match_id=ticket.match_id,
+        )
 
     return MatchQueueResponse(
         status="queued",

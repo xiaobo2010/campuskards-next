@@ -90,7 +90,16 @@ export default function MatchmakingPage() {
       return;
     }
     try {
-      await matchApi.joinQueue(selectedDeckId, selectedMode);
+      const res = await matchApi.joinQueue(selectedDeckId, selectedMode);
+      if (res.status === "matched" && res.match_id) {
+        setCurrentGame(res.match_id, null);
+        setMatchState("found");
+        toast.success("匹配成功！正在进入对局...");
+        setTimeout(() => {
+          router.push(`/game/play?match_id=${res.match_id}`);
+        }, 800);
+        return;
+      }
       setMatchState("searching");
       setSearchTime(0);
       toast.info(`开始${selectedMode === "quick" ? "快速匹配" : "排位赛"}匹配...`);

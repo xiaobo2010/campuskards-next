@@ -37,9 +37,16 @@
 - 匹配队列：进程内 + Redis 镜像（`match:queue:quick` / `match:queue:ranked`）
 - 对战状态：Redis 持久化（`match:room:{id}`）；WS 连接仍在单进程内存
 - 多 worker / 水平扩展需 Redis Pub/Sub 广播（未实现）
-- 未实现：`use_ability`、派系协同/走廊控制
+- 效果牌：基于 `effect_text` 正则解析，覆盖抽牌/伤害/增益/召唤等常见模式；复杂抉择/条件效果为简化实现
+- `use_ability`：支持含「主动/激活」词条的单位；无主动能力的卡仍返回错误
+- 已实现：五派系协同（`key_class` / `arts_class` / `normal_class` / `intl_class` / `competition_class`）
+- 已实现：走廊控制（前线满员且对手前线空 → 回合开始 +1 墨水）
+- 已实现：`play_card` 的 `slot` 插入阵线指定位置
+- 已实现：远程单位可越过前线攻击支援线；远程攻击不受反击
+- 已实现：ELO≥2000 HQ 生命加成（`User.hq_bonus_hp`）于匹配开局应用
 - 已实现：100s 回合计时、`timer_warning`（≤20s）、超时自动结束回合
-- `play_card` 的 `slot` 参数 v1 仅追加到阵线末尾
+- 已实现：支援线保护（近战单位）、单位/效果牌分流出牌
+- 已实现：战斗结算防重复 finalize、即时匹配 `POST /queue` 返回 `match_id`
 
 详细规格见 `DEVELOPMENT.md` 第四章 4.10 / 4.11。
 

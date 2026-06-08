@@ -210,6 +210,7 @@ export interface MatchQueueResponse {
   mode: MatchMode;
   queue_position: number;
   estimated_wait: number;
+  match_id?: string | null;
 }
 
 export interface MatchQueueStatus {

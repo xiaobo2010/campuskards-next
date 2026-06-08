@@ -16,6 +16,7 @@ class MatchQueueResponse(BaseModel):
     mode: MatchMode = "quick"
     queue_position: int
     estimated_wait: int = Field(description="Estimated wait in milliseconds")
+    match_id: str | None = None
 
 
 class MatchQueueCancelResponse(BaseModel):

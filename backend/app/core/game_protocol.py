@@ -36,14 +36,20 @@ def _unit_public(unit: CardInstance) -> dict:
         "can_attack": unit.can_attack and not unit.has_attacked,
         "faction": unit.faction,
         "card_type": unit.card_type,
+        "unit_type": unit.unit_type,
+        "keywords": sorted(unit.keywords),
+        "synergy_tags": unit.synergy_tags,
+        "base_power": unit.base_power,
+        "base_spirit": unit.base_spirit,
     }
 
 
 def _player_view(game: GameState, player_num: int, *, reveal_hand: bool) -> dict:
     side = game.battlefield.side_for(player_num)
+    max_hp = game.starting_hp.get(player_num, STARTING_HP)
     view: dict = {
         "hp": side.spirit_total,
-        "max_hp": STARTING_HP,
+        "max_hp": max_hp,
         "ink": side.ink,
         "max_ink": side.max_ink,
         "front_line": [_unit_public(u) for u in side.front_line],
@@ -86,6 +92,9 @@ def build_game_state(
         # convenience: which seat the viewer occupies
         "viewer": player_key(viewer_player),
         "opponent": player_key(opponent),
+        "corridor_controller": (
+            player_key(game.corridor_controller) if game.corridor_controller else None
+        ),
     }
 
 
