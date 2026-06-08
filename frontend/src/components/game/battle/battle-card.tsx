@@ -1,0 +1,120 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { Swords, Droplets } from "lucide-react";
+import type { BattleUnit } from "@/types";
+import { cn } from "@/lib/utils";
+
+const FACTION_STYLES: Record<string, string> = {
+  key_class: "from-blue-700 via-blue-800 to-indigo-900 border-blue-500/40",
+  art_club: "from-pink-700 via-rose-800 to-purple-900 border-pink-500/40",
+  sports: "from-orange-600 via-red-700 to-red-900 border-orange-500/40",
+  student_council: "from-amber-600 via-yellow-700 to-amber-900 border-amber-500/40",
+  science: "from-cyan-700 via-teal-800 to-emerald-900 border-cyan-500/40",
+};
+
+function factionStyle(faction?: string | null) {
+  if (faction && FACTION_STYLES[faction]) return FACTION_STYLES[faction];
+  return "from-zinc-700 via-zinc-800 to-zinc-900 border-zinc-600/40";
+}
+
+interface BattleCardProps {
+  unit: BattleUnit;
+  variant?: "hand" | "field";
+  selected?: boolean;
+  disabled?: boolean;
+  affordable?: boolean;
+  onClick?: () => void;
+}
+
+export default function BattleCard({
+  unit,
+  variant = "field",
+  selected,
+  disabled,
+  affordable = true,
+  onClick,
+}: BattleCardProps) {
+  const isHand = variant === "hand";
+  const grad = factionStyle(unit.faction);
+
+  return (
+    <motion.button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      whileHover={!disabled ? { y: isHand ? -10 : -4, scale: 1.03 } : undefined}
+      whileTap={!disabled ? { scale: 0.97 } : undefined}
+      className={cn(
+        "relative rounded-xl border-2 bg-gradient-to-b text-left overflow-hidden transition-shadow shrink-0",
+        grad,
+        isHand ? "w-[4.5rem] h-[6.5rem] sm:w-20 sm:h-[7.5rem]" : "w-20 h-28 sm:w-[5.5rem] sm:h-32",
+        selected && "ring-2 ring-amber-400 border-amber-400 scale-105 z-10 shadow-lg shadow-amber-500/25",
+        disabled && "opacity-45 cursor-not-allowed grayscale-[0.3]",
+        !affordable && isHand && "opacity-60",
+        unit.can_attack && !disabled && !isHand && "shadow-[0_0_12px_rgba(251,191,36,0.4)]"
+      )}
+    >
+      {/* 费用 */}
+      {unit.cost != null && unit.cost > 0 && (
+        <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-[10px] font-bold text-sky-300">
+          {unit.cost}
+        </span>
+      )}
+
+      {unit.can_attack && !isHand && (
+        <Swords className="absolute top-1 right-1 w-3.5 h-3.5 text-amber-300 drop-shadow" />
+      )}
+
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-1.5 pt-6">
+        <p className="text-[10px] sm:text-xs font-bold text-white leading-tight line-clamp-2">
+          {unit.name}
+        </p>
+        <div className="flex gap-1 mt-1 text-[9px] font-mono">
+          <span className="px-1 rounded bg-red-900/60 text-red-200" title="力量">
+            {unit.power}
+          </span>
+          <span className="px-1 rounded bg-blue-900/60 text-blue-200" title="精神">
+            {unit.spirit}
+          </span>
+          <span className="px-1 rounded bg-emerald-900/60 text-emerald-200" title="韧性">
+            {unit.grit}
+          </span>
+        </div>
+      </div>
+
+      {!affordable && isHand && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <Droplets className="w-5 h-5 text-red-400" />
+        </div>
+      )}
+    </motion.button>
+  );
+}
+
+export function EmptyBattleSlot() {
+  return (
+    <div className="w-20 h-28 sm:w-[5.5rem] sm:h-32 rounded-xl border-2 border-dashed border-zinc-700/60 bg-zinc-900/30 flex items-center justify-center">
+      <span className="text-[10px] text-zinc-600">空位</span>
+    </div>
+  );
+}
+
+export function CardBackStack({ count }: { count: number }) {
+  return (
+    <div className="relative w-8 h-11">
+      {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+        <div
+          key={i}
+          className="absolute w-8 h-11 rounded-md bg-gradient-to-br from-purple-900 to-zinc-900 border border-purple-500/30"
+          style={{ left: i * 4, top: -i * 2, zIndex: i }}
+        />
+      ))}
+      {count > 0 && (
+        <span className="absolute -bottom-1 -right-1 z-10 text-[9px] bg-zinc-800 border border-zinc-600 rounded-full w-4 h-4 flex items-center justify-center text-zinc-300">
+          {count}
+        </span>
+      )}
+    </div>
+  );
+}

@@ -1,90 +1,65 @@
-import { create } from 'zustand'
-import type { Deck, DeckListItem, DeckCardEntry } from '@/types'
-
-interface MatchEvent {
-  type: string
-  data: unknown
-  timestamp: number
-}
+import { create } from "zustand";
+import type { GameStatePayload, OpponentInfo } from "@/types";
+import type { WsConnectionStatus } from "@/lib/game-ws";
 
 interface MatchState {
-  // Matchmaking
-  isSearching: boolean
-  matchmakingQueueTime: number
+  isSearching: boolean;
+  matchmakingQueueTime: number;
 
-  // Current game
-  currentGameId: string | null
-  opponentName: string | null
-  opponentElo: number | null
-  myHp: number
-  opponentHp: number
-  myMana: number
-  maxMana: number
-  turn: number
+  currentGameId: string | null;
+  opponent: OpponentInfo | null;
 
-  // Game events
-  gameEvents: MatchEvent[]
+  gameState: GameStatePayload | null;
+  connectionStatus: WsConnectionStatus;
+  lastError: string | null;
 
-  // Actions
-  startSearching: () => void
-  stopSearching: () => void
-  setCurrentGame: (gameId: string | null, opponent?: { name: string; elo: number }) => void
-  updateGameState: (state: Partial<Pick<MatchState, 'myHp' | 'opponentHp' | 'myMana' | 'maxMana' | 'turn'>>) => void
-  addGameEvent: (event: MatchEvent) => void
-  clearGameEvents: () => void
-  resetMatch: () => void
+  deployLine: "front" | "support";
+  selectedAttackerUid: string | null;
+
+  startSearching: () => void;
+  stopSearching: () => void;
+  setCurrentGame: (gameId: string | null, opponent?: OpponentInfo | null) => void;
+  setGameState: (state: GameStatePayload | null) => void;
+  setConnectionStatus: (status: WsConnectionStatus) => void;
+  setLastError: (msg: string | null) => void;
+  setDeployLine: (line: "front" | "support") => void;
+  setSelectedAttackerUid: (uid: string | null) => void;
+  resetMatch: () => void;
 }
 
-export const useMatchStore = create<MatchState>((set, get) => ({
+const initialState = {
   isSearching: false,
   matchmakingQueueTime: 0,
-
   currentGameId: null,
-  opponentName: null,
-  opponentElo: null,
-  myHp: 30,
-  opponentHp: 30,
-  myMana: 1,
-  maxMana: 1,
-  turn: 1,
+  opponent: null,
+  gameState: null,
+  connectionStatus: "idle" as WsConnectionStatus,
+  lastError: null,
+  deployLine: "front" as const,
+  selectedAttackerUid: null,
+};
 
-  gameEvents: [],
+export const useMatchStore = create<MatchState>((set) => ({
+  ...initialState,
 
   startSearching: () => set({ isSearching: true, matchmakingQueueTime: 0 }),
   stopSearching: () => set({ isSearching: false, matchmakingQueueTime: 0 }),
 
-  setCurrentGame: (gameId, opponent) =>
+  setCurrentGame: (gameId, opponent = null) =>
     set({
       currentGameId: gameId,
-      opponentName: opponent?.name ?? null,
-      opponentElo: opponent?.elo ?? null,
-      myHp: 30,
-      opponentHp: 30,
-      myMana: 1,
-      maxMana: 1,
-      turn: 1,
-      gameEvents: [],
+      opponent,
+      gameState: null,
+      connectionStatus: "idle",
+      lastError: null,
+      selectedAttackerUid: null,
     }),
 
-  updateGameState: (state) => set(state),
+  setGameState: (state) => set({ gameState: state }),
+  setConnectionStatus: (status) => set({ connectionStatus: status }),
+  setLastError: (msg) => set({ lastError: msg }),
+  setDeployLine: (line) => set({ deployLine: line }),
+  setSelectedAttackerUid: (uid) => set({ selectedAttackerUid: uid }),
 
-  addGameEvent: (event) =>
-    set((s) => ({ gameEvents: [...s.gameEvents, event] })),
-
-  clearGameEvents: () => set({ gameEvents: [] }),
-
-  resetMatch: () =>
-    set({
-      isSearching: false,
-      matchmakingQueueTime: 0,
-      currentGameId: null,
-      opponentName: null,
-      opponentElo: null,
-      myHp: 30,
-      opponentHp: 30,
-      myMana: 1,
-      maxMana: 1,
-      turn: 1,
-      gameEvents: [],
-    }),
-}))
+  resetMatch: () => set({ ...initialState }),
+}));

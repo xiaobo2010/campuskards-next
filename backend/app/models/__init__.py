@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -121,6 +122,9 @@ class Match(Base):
     winner_id: Mapped[uuid.UUID | None]
     p1_deck_id: Mapped[uuid.UUID]
     p2_deck_id: Mapped[uuid.UUID]
+    mode: Mapped[str] = mapped_column(String(16), default="quick")  # quick | ranked
+    end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    replay_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
     ended_at: Mapped[datetime | None]
     turns_played: Mapped[int | None]

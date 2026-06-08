@@ -16,6 +16,8 @@ from app.api.checkin import router as checkin_router
 from app.api.shop import router as shop_router
 from app.api.user import router as user_router
 from app.api.leaderboard import router as leaderboard_router
+from app.api.match import router as match_router
+from app.ws.game import ws_router
 from app.core.config import settings
 
 
@@ -48,6 +50,8 @@ app.include_router(shop_router)
 app.include_router(checkin_router)
 app.include_router(user_router)
 app.include_router(leaderboard_router)
+app.include_router(match_router)
+app.include_router(ws_router)
 
 # Mount uploads directory for serving avatar images
 uploads_path = Path(__file__).parent / "uploads"

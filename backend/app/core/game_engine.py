@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .battlefield import Battlefield, BattlefieldSide, MAX_LINE
+from .battlefield import Battlefield, BattlefieldSide, MAX_FRONT_LINE, MAX_SUPPORT_LINE
 from .combat import CombatResult, compute_overflow, resolve_attack
 
 
@@ -125,10 +125,11 @@ class GameState:
         self._log(self.current_player, "combat_phase", "entered combat")
 
     def end_turn(self) -> None:
-        """End current player's turn."""
-        self._require_phase(Phase.MAIN)
+        """End current player's turn (allowed in MAIN or COMBAT)."""
+        if self.phase not in (Phase.MAIN, Phase.COMBAT):
+            raise GameError(f"Cannot end turn during {self.phase.value} phase")
         self._require_current_player()
-        # Cannot end turn in COMBAT without attacking — but we allow it
+        self.phase = Phase.END
         next_player = 2 if self.current_player == 1 else 1
         self._log(self.current_player, "end_turn", f"turn {self.turn} ended")
         self.current_player = next_player
@@ -176,7 +177,8 @@ class GameState:
             raise GameError(f"Not enough ink ({side.ink}/{card.cost})")
 
         target_line = side.front_line if line == "front" else side.support_line
-        if len(target_line) >= MAX_LINE:
+        max_len = MAX_FRONT_LINE if line == "front" else MAX_SUPPORT_LINE
+        if len(target_line) >= max_len:
             raise GameError(f"{line} line is full")
 
         side.hand.remove(card)

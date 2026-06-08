@@ -69,7 +69,7 @@ campuskards/
 │       ├── schemas/    # Pydantic
 │       └── core/       # 配置 · 安全 · 数据库
 ├── DEVELOPMENT.md      # 完整 API 规范 + 开发计划
-├── BACKEND-GAP.md      # 未实现 API 跟踪（当前：Match/WS）
+├── BACKEND-GAP.md      # 前后端差异与 v1 限制跟踪
 └── docs/               # 游戏设计文档
 ```
 
@@ -138,7 +138,8 @@ npm run dev    # → http://localhost:3000
 | Admin | `GET/PATCH /api/admin/users/{id}` | 用户管理 |
 | Admin | `*/api/admin/announcements` | 公告 CRUD + pin |
 | Leaderboard | `GET /api/leaderboard` | ELO 排行 |
-| **Match** | `POST /api/match/queue` 等 | **待实现** |
+| **Match** | `POST /api/match/queue` 等 | ✅ v1 |
+| **Game WS** | `ws://host/ws/game/{match_id}` | ✅ v1 |
 | **Game WS** | `wss://.../ws/game/{id}` | **待实现** |
 
 ## 认证说明
@@ -153,7 +154,7 @@ npm run dev    # → http://localhost:3000
 | 文档 | 内容 |
 |------|------|
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | API 规范 · 架构决策 · Bug 清单 · 部署 |
-| [`BACKEND-GAP.md`](BACKEND-GAP.md) | 未实现 API（Match / WebSocket） |
+| [`BACKEND-GAP.md`](BACKEND-GAP.md) | API 差异与对战 v1 限制 |
 | [`docs/upgrade-system-design.md`](docs/upgrade-system-design.md) | 卡牌升级系统 |
 | [`docs/faction-synergy-design.md`](docs/faction-synergy-design.md) | 派系协同 |
 | [`docs/battlefield-depth-design.md`](docs/battlefield-depth-design.md) | 战场机制 |

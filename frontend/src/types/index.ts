@@ -195,6 +195,175 @@ export interface UpgradeResult {
   ink_remaining: number;
 }
 
+// ---------- Match / Game ----------
+
+export interface OpponentInfo {
+  id: string;
+  username: string;
+  elo: number;
+}
+
+export type MatchMode = "quick" | "ranked";
+
+export interface MatchQueueResponse {
+  status: string;
+  mode: MatchMode;
+  queue_position: number;
+  estimated_wait: number;
+}
+
+export interface MatchQueueStatus {
+  status: "idle" | "queued" | "matched";
+  mode?: MatchMode | null;
+  match_id?: string | null;
+  opponent?: OpponentInfo | null;
+  queue_position?: number | null;
+  estimated_wait?: number | null;
+}
+
+export interface BattleUnit {
+  uid: string;
+  card_id: string;
+  name: string;
+  cost?: number;
+  power: number;
+  spirit: number;
+  grit: number;
+  can_attack: boolean;
+  faction?: string | null;
+  card_type?: string | null;
+}
+
+export interface PlayerBattleView {
+  hp: number;
+  max_hp: number;
+  ink: number;
+  max_ink: number;
+  front_line: BattleUnit[];
+  support_line: BattleUnit[];
+  deck_count: number;
+  pen_count: number;
+  hand?: BattleUnit[];
+  hand_count?: number;
+}
+
+export interface GameStatePayload {
+  turn: number;
+  phase: "draw" | "main" | "combat" | "end";
+  current_player: "p1" | "p2";
+  timer: number;
+  timer_remaining?: number;
+  turn_deadline_ts?: number | null;
+  match_elapsed?: number;
+  game_over: boolean;
+  winner: "p1" | "p2" | null;
+  viewer: "p1" | "p2";
+  opponent: "p1" | "p2";
+  players: {
+    p1: PlayerBattleView;
+    p2: PlayerBattleView;
+  };
+}
+
+export interface GameOverPayload {
+  winner_id: string;
+  elo_change: { p1: number; p2: number };
+  reason: string;
+  mode?: MatchMode;
+  battle_report_id?: string;
+}
+
+export interface MatchHistoryItem {
+  id: string;
+  mode: MatchMode;
+  opponent: OpponentInfo;
+  result: "win" | "loss" | "draw";
+  my_elo_change: number;
+  end_reason?: string | null;
+  my_deck_faction?: string | null;
+  opponent_deck_faction?: string | null;
+  turns_played?: number | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+}
+
+export interface EloTimelinePoint {
+  match_id: string;
+  ended_at: string;
+  delta: number;
+  cumulative: number;
+}
+
+export interface MatchStats {
+  total_matches: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  win_rate: number;
+  ranked_matches: number;
+  quick_matches: number;
+  current_elo: number;
+  elo_delta_7d: number;
+  elo_timeline_7d: EloTimelinePoint[];
+}
+
+export interface MatchUserInfo {
+  id: string;
+  username: string;
+  elo: number;
+  deck_id: string;
+  deck_faction?: string | null;
+}
+
+export interface BattleReportEvent {
+  turn?: number;
+  phase: string;
+  player: string;
+  action: string;
+  detail: string;
+}
+
+export interface BattleReport {
+  match_id?: string;
+  mode?: MatchMode;
+  game_id?: string;
+  turns_played?: number;
+  winner?: string | null;
+  winner_id?: string | null;
+  end_reason?: string;
+  elo_changes?: { p1: number; p2: number };
+  players?: Record<
+    string,
+    {
+      id: string;
+      username: string;
+      deck_id: string;
+      faction?: string | null;
+      final_hp?: number;
+    }
+  >;
+  summary?: {
+    total_events: number;
+    action_counts: Record<string, number>;
+  };
+  event_log?: BattleReportEvent[];
+  final_snapshot?: Record<string, unknown>;
+}
+
+export interface MatchDetail {
+  id: string;
+  status: "active" | "finished";
+  mode: MatchMode;
+  end_reason?: string | null;
+  p1: MatchUserInfo;
+  p2: MatchUserInfo;
+  winner_id?: string | null;
+  turns_played?: number | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  replay_data?: BattleReport | null;
+}
+
 // ---------- Pagination ----------
 
 export interface PaginatedResponse<T> {

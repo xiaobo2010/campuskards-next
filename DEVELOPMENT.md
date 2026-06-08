@@ -303,23 +303,26 @@ P1 支援线 (P1 Support Line)
 
 ---
 
-### 4.10 Match 对战模块 `/api/match` 🔴 全部未实现
+### 4.10 Match 对战模块 `/api/match` ✅ v1 已实现
 
-> 游戏核心功能，最高优先级。coder 实现时必须严格遵循以下规格。
+> 游戏核心功能。coder 实现时必须严格遵循以下规格。  
+> **v1 说明**：快速 (`quick`) 与排位 (`ranked`) 使用**独立匹配队列**；排位胜负影响 ELO，快速不影响。  
+> 对战进行中状态写入 Redis（`match:room:{id}`）；结算时生成完整战报写入 PostgreSQL `matches.replay_data`。  
+> WebSocket 连接仍在进程内存；多 worker 需配合 Redis Pub/Sub（待实现）。
 
 | # | 方法 | 路径 | 认证 | 说明 | 优先级 |
 |---|------|------|------|------|--------|
-| 1 | POST | `/api/match/queue` | ✅ | 加入匹配队列 | P0 |
-| 2 | DELETE | `/api/match/queue` | ✅ | 取消匹配 | P0 |
-| 3 | GET | `/api/match/queue/status` | ✅ | 查询匹配状态 | P0 |
-| 4 | GET | `/api/match/history` | ✅ | 对战历史(分页) | P1 |
-| 5 | GET | `/api/match/{id}` | ✅ | 对战详情 | P1 |
-| 6 | POST | `/api/match/{id}/surrender` | ✅ | 投降 | P1 |
+| 1 | POST | `/api/match/queue` | ✅ | 加入匹配队列 | ✅ |
+| 2 | DELETE | `/api/match/queue` | ✅ | 取消匹配 | ✅ |
+| 3 | GET | `/api/match/queue/status` | ✅ | 查询匹配状态 | ✅ |
+| 4 | GET | `/api/match/history` | ✅ | 对战历史(分页) | ✅ |
+| 5 | GET | `/api/match/{id}` | ✅ | 对战详情 | ✅ |
+| 6 | POST | `/api/match/{id}/surrender` | ✅ | 投降 | ✅ |
 
 **1. POST /api/match/queue**
-- 请求体：`{ deck_id: UUID }`
-- 响应 `200`：`{ status: "queued", queue_position: int, estimated_wait: int(ms) }`
-- 逻辑：加入 Redis 匹配池，按 ELO 范围匹配
+- 请求体：`{ deck_id: UUID, mode: "quick"|"ranked" }`（默认 `quick`）
+- 响应 `200`：`{ status: "queued", mode, queue_position: int, estimated_wait: int(ms) }`
+- 逻辑：加入对应模式的匹配池，同模式内按 ELO ±200 匹配
 - 错误 `400`：卡组不合法 / 已在队列中
 
 **2. DELETE /api/match/queue**
@@ -334,32 +337,47 @@ P1 支援线 (P1 Support Line)
 - 响应 `200`：`PaginatedResponse<{ id, opponent: { id, username, elo }, result, my_deck_faction, opponent_deck_faction, turns_played, started_at, ended_at }>`
 
 **5. GET /api/match/{id}**
-- 响应 `200`：`{ id, p1: UserInfo, p2: UserInfo, winner_id?, turns_played, started_at, ended_at, replay_data?: dict }`
+- 响应 `200`：`{ id, mode, end_reason?, p1, p2, winner_id?, turns_played, started_at, ended_at, replay_data?: dict }`
+- `replay_data` 含 `event_log`、`summary`、`players`、`final_snapshot` 等完整战报
 
 **6. POST /api/match/{id}/surrender**
 - 响应 `200`：`{ result: "loss", elo_change: int }`
 
 ---
 
-### 4.11 Game WebSocket 对战通信 `/ws/game/{match_id}` 🔴 未实现
+### 4.11 Game WebSocket 对战通信 `/ws/game/{match_id}` ✅ v1 已实现
 
-> 实时对战状态同步，基于 WebSocket。
+> 实时对战状态同步，基于 WebSocket。消息统一封装为 `{ "event": string, "payload": object }`。
 
-**连接**：`wss://gapi.xiaobocloud.fun/ws/game/{match_id}?token=<access_token>`
+**连接**：`wss://gapi.xiaobocloud.fun/ws/game/{match_id}?token=<access_token>`  
+**本地**：`ws://localhost:8000/ws/game/{match_id}?token=<access_token>`
+
+**认证**：Query 参数 `token` 为 access_token（与 REST Bearer 相同）。仅对战双方可连接。
+
+**引擎规则（v1）**：
+- 回合阶段：`draw → main → combat → end`，与 `app/core/game_engine.py` 一致
+- 前线最多 5 单位，支援线最多 4 单位（见 `battlefield.py`）
+- 总部血量 `spirit_total` 默认 30，归零判负
+- 墨水每回合 +1（上限 10），开局各 1 墨水
+- 召唤疲劳：当回合部署的单位不可攻击
+- 战斗：`effective_damage = max(0, power - grit)`；击杀后溢出伤害打到总部
+- 卡组：匹配前校验 30 张、主派系 ≥20 张、单卡 ≤3 张
 
 | # | 方向 | 事件 | 载荷 | 说明 | 优先级 |
 |---|------|------|------|------|--------|
-| 1 | C→S | `join_match` | `{ match_id }` | 加入对战房间 | P0 |
-| 2 | C→S | `play_card` | `{ card_id, position: "front"|"support", slot: int }` | 出牌布阵 | P0 |
-| 3 | C→S | `attack` | `{ attacker_ids: [UUID], target_id?: UUID }` | 攻击指令 | P0 |
-| 4 | C→S | `end_turn` | `{}` | 结束回合 | P0 |
-| 5 | C→S | `use_ability` | `{ card_id, ability_id, target_id? }` | 使用能力 | P1 |
-| 6 | S→C | `game_state` | 见下方结构 | 全量状态推送 | P0 |
-| 7 | S→C | `turn_start` | `{ player: "p1"|"p2", timer: int }` | 回合开始 | P0 |
-| 8 | S→C | `card_played` | `{ player, card_id, position, slot }` | 卡牌被打出 | P0 |
-| 9 | S→C | `attack_result` | `{ attacker_id, target_id?, damage, destroyed: [UUID] }` | 攻击结算 | P0 |
-| 10 | S→C | `game_over` | `{ winner_id, elo_change: { p1: int, p2: int } }` | 对战结束 | P0 |
-| 11 | S→C | `timer_warning` | `{ seconds_left: int }` | 倒计时警告 | P1 |
+| 1 | C→S | `join_match` | `{ match_id }` | 加入对战房间 | ✅ |
+| 2 | C→S | `play_card` | `{ card_id, position: "front"\|"support", slot?: int }` | 出牌布阵 | ✅ |
+| 3 | C→S | `attack` | `{ attacker_ids: [str], target_id?: str }` | 攻击指令 | ✅ |
+| 4 | C→S | `end_turn` | `{}` | 结束回合 | ✅ |
+| 5 | C→S | `use_ability` | `{ card_id, ability_id, target_id? }` | 使用能力 | 🔴 v1 返回 error |
+| 6 | S→C | `game_state` | 见下方结构 | 全量状态推送 | ✅ |
+| 7 | S→C | `turn_start` | `{ player: "p1"\|"p2", timer: int }` | 回合开始 | ✅ |
+| 8 | S→C | `card_played` | `{ player, card_id, instance_id, position, slot }` | 卡牌被打出 | ✅ |
+| 9 | S→C | `attack_result` | `{ attacker_id, target_id?, damage, destroyed: [str] }` | 攻击结算 | ✅ |
+| 10 | S→C | `game_over` | `{ winner_id, elo_change: { p1: int, p2: int }, reason? }` | 对战结束 | ✅ |
+| 11 | S→C | `timer_warning` | `{ seconds_left: int, player: "p1"\|"p2" }` | 剩余 ≤20s 警告 | ✅ |
+| 12 | S→C | `turn_timeout` | `{ player, reason }` | 回合超时自动结束 | ✅ |
+| 12 | S→C | `error` | `{ detail: string }` | 非法操作 | ✅ |
 
 **game_state 结构**：
 ```json
@@ -367,19 +385,35 @@ P1 支援线 (P1 Support Line)
   "turn": 1,
   "phase": "draw|main|combat|end",
   "current_player": "p1",
-  "timer": 30,
+  "timer": 100,
+  "timer_remaining": 87,
+  "turn_deadline_ts": 1717843200.5,
+  "match_elapsed": 245,
+  "game_over": false,
+  "winner": null,
+  "viewer": "p1",
+  "opponent": "p2",
   "players": {
     "p1": {
-      "hp": 20, "max_hp": 20, "ink": 3, "max_ink": 3,
-      "hand": ["uuid1", "uuid2"],
-      "front_line": [{ "card_id": "uuid", "power": 3, "spirit": 2, "grit": 1, "can_attack": true }],
+      "hp": 30, "max_hp": 30, "ink": 3, "max_ink": 3,
+      "hand": [{ "uid": "inst1", "card_id": "card_001", "name": "...", "power": 3, "spirit": 2, "grit": 1, "can_attack": false }],
+      "front_line": [{ "uid": "...", "card_id": "...", "power": 3, "spirit": 2, "grit": 1, "can_attack": true }],
       "support_line": [],
       "deck_count": 20, "pen_count": 0
     },
-    "p2": { "hand_count": 5, ... }
+    "p2": { "hand_count": 5, "hp": 30, ... }
   }
 }
 ```
+
+**play_card 说明**：`card_id` 可为手牌实例 `uid`，或卡牌定义 `id`（手牌唯一时）。
+
+**前端接入流程**：
+1. `POST /api/match/queue` `{ deck_id }`
+2. 轮询 `GET /api/match/queue/status` 直至 `status === "matched"`
+3. 连接 `ws://<API>/ws/game/{match_id}?token=...`
+4. 发送 `{ "event": "join_match", "payload": { "match_id": "..." } }`
+5. 监听 `game_state` / `turn_start` / `game_over`
 
 **回合流程**：draw(抽牌) → main(出牌+布阵) → combat(攻击结算) → end(回合切换)
 
@@ -398,9 +432,9 @@ P1 支援线 (P1 Support Line)
 | User | 2/2 | — | 100% |
 | Announcements | 2/2 | — | 100% |
 | Admin | 6/6 | — | 100% |
-| **Match** | **0/6** | **全部** | **0%** |
-| **Game WS** | **0/11** | **全部** | **0%** |
-| **总计** | **33/50** | **17** | **66%** |
+| **Match** | **6/6** | — | **100%** |
+| **Game WS** | **9/12** | timer_warning, use_ability, 派系协同 | **75%** |
+| **总计** | **48/50** | **2** | **96%** |
 
 ---
 

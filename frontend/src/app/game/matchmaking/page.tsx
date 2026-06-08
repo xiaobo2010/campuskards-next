@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Swords, Zap, Trophy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
+import { decksApi, matchApi, ApiError } from "@/lib/api";
+import { useMatchStore } from "@/store/useMatchStore";
+import type { DeckListItem } from "@/types";
 import { toast } from "sonner";
 
 type MatchMode = "quick" | "ranked";
@@ -15,11 +19,16 @@ type MatchState = "idle" | "searching" | "found";
 export default function MatchmakingPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const setCurrentGame = useMatchStore((s) => s.setCurrentGame);
+
   const [selectedMode, setSelectedMode] = useState<MatchMode>("quick");
   const [matchState, setMatchState] = useState<MatchState>("idle");
   const [searchTime, setSearchTime] = useState(0);
+  const [decks, setDecks] = useState<DeckListItem[]>([]);
+  const [selectedDeckId, setSelectedDeckId] = useState<string>("");
+  const [loadingDecks, setLoadingDecks] = useState(true);
+  const pollingRef = useRef(false);
 
-  // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       toast.error("请先登录");
@@ -27,44 +36,76 @@ export default function MatchmakingPage() {
     }
   }, [user, authLoading, router]);
 
-  // Search timer
+  useEffect(() => {
+    if (!user) return;
+    decksApi
+      .list()
+      .then((list) => {
+        setDecks(list);
+        if (list.length > 0) {
+          setSelectedDeckId(list[0].id);
+        }
+      })
+      .catch(() => toast.error("加载卡组失败"))
+      .finally(() => setLoadingDecks(false));
+  }, [user]);
+
   useEffect(() => {
     if (matchState !== "searching") return;
-
-    const timer = setInterval(() => {
-      setSearchTime((prev) => prev + 1);
-    }, 1000);
-
+    const timer = setInterval(() => setSearchTime((p) => p + 1), 1000);
     return () => clearInterval(timer);
   }, [matchState]);
 
-  // Mock matching flow
+  const pollStatus = useCallback(async () => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    try {
+      const status = await matchApi.queueStatus();
+      if (status.status === "matched" && status.match_id) {
+        setCurrentGame(status.match_id, status.opponent ?? null);
+        setMatchState("found");
+        toast.success("匹配成功！正在进入对局...");
+        setTimeout(() => {
+          router.push(`/game/play?match_id=${status.match_id}`);
+        }, 1500);
+      }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "查询匹配状态失败";
+      toast.error(msg);
+    } finally {
+      pollingRef.current = false;
+    }
+  }, [router, setCurrentGame]);
+
   useEffect(() => {
     if (matchState !== "searching") return;
+    const interval = setInterval(pollStatus, 2000);
+    pollStatus();
+    return () => clearInterval(interval);
+  }, [matchState, pollStatus]);
 
-    // TODO: 后端接入点 - POST /api/game/matchmaking/
-    // TODO: WebSocket 连接 - ws://host/ws/game/match/{match_id}
-    const matchDelay = 3000 + Math.random() * 2000; // 3-5 seconds
-    const timeout = setTimeout(() => {
-      setMatchState("found");
-      toast.success("匹配成功！正在进入对局...");
-
-      // Redirect to game after 2 seconds
-      setTimeout(() => {
-        router.push("/game/play");
-      }, 2000);
-    }, matchDelay);
-
-    return () => clearTimeout(timeout);
-  }, [matchState, router]);
-
-  const handleStartMatch = () => {
-    setMatchState("searching");
-    setSearchTime(0);
-    toast.info(`开始${selectedMode === "quick" ? "快速匹配" : "排位赛"}匹配...`);
+  const handleStartMatch = async () => {
+    if (!selectedDeckId) {
+      toast.error("请先创建并选择一套卡组");
+      return;
+    }
+    try {
+      await matchApi.joinQueue(selectedDeckId, selectedMode);
+      setMatchState("searching");
+      setSearchTime(0);
+      toast.info(`开始${selectedMode === "quick" ? "快速匹配" : "排位赛"}匹配...`);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "加入匹配队列失败";
+      toast.error(msg);
+    }
   };
 
-  const handleCancelMatch = () => {
+  const handleCancelMatch = async () => {
+    try {
+      await matchApi.leaveQueue(selectedMode);
+    } catch {
+      // already left queue
+    }
     setMatchState("idle");
     setSearchTime(0);
     toast.info("已取消匹配");
@@ -78,9 +119,7 @@ export default function MatchmakingPage() {
     );
   }
 
-  if (!user) {
-    return null; // Will redirect
-  }
+  if (!user) return null;
 
   return (
     <div
@@ -92,8 +131,7 @@ export default function MatchmakingPage() {
         backgroundAttachment: "fixed",
       }}
     >
-      {/* Blur + dark overlay */}
-      <div className="absolute inset-0 backdrop-blur-sm bg-black/70 -z-10" />
+      <div className="absolute inset-0 backdrop-blur-sm bg-black/70 pointer-events-none -z-10" />
 
       <div className="relative z-10 max-w-2xl w-full">
         <AnimatePresence mode="wait">
@@ -111,13 +149,38 @@ export default function MatchmakingPage() {
                     选择对战模式
                   </CardTitle>
                   <CardDescription className="text-center text-zinc-400">
-                    选择你喜欢的匹配模式，开始卡牌对战
+                    选择卡组与匹配模式，开始卡牌对战
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Mode Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm text-zinc-400">出战卡组</label>
+                    {loadingDecks ? (
+                      <p className="text-zinc-500 text-sm">加载卡组中...</p>
+                    ) : decks.length === 0 ? (
+                      <p className="text-zinc-400 text-sm">
+                        还没有卡组，请先到{" "}
+                        <Link href="/game/deck-builder" className="text-purple-400 underline">
+                          卡组构筑
+                        </Link>{" "}
+                        创建一套。
+                      </p>
+                    ) : (
+                      <select
+                        value={selectedDeckId}
+                        onChange={(e) => setSelectedDeckId(e.target.value)}
+                        className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-zinc-100 text-sm"
+                      >
+                        {decks.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} ({d.faction_code}) · {d.card_count ?? "?"} 张
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Quick Match */}
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -134,18 +197,11 @@ export default function MatchmakingPage() {
                         </div>
                         <div className="text-center">
                           <h3 className="text-xl font-bold text-zinc-100">快速匹配</h3>
-                          <p className="text-sm text-zinc-400 mt-1">休闲对战，不影响排名</p>
+                          <p className="text-sm text-zinc-400 mt-1">休闲对战</p>
                         </div>
                       </div>
-                      {selectedMode === "quick" && (
-                        <motion.div
-                          layoutId="selectedIndicator"
-                          className="absolute top-2 right-2 w-3 h-3 rounded-full bg-purple-500"
-                        />
-                      )}
                     </motion.button>
 
-                    {/* Ranked Match */}
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -162,21 +218,19 @@ export default function MatchmakingPage() {
                         </div>
                         <div className="text-center">
                           <h3 className="text-xl font-bold text-zinc-100">排位赛</h3>
-                          <p className="text-sm text-zinc-400 mt-1">竞技对战，提升排名</p>
+                          <p className="text-sm text-zinc-400 mt-1">竞技对战，影响 ELO</p>
                         </div>
                       </div>
-                      {selectedMode === "ranked" && (
-                        <motion.div
-                          layoutId="selectedIndicator"
-                          className="absolute top-2 right-2 w-3 h-3 rounded-full bg-purple-500"
-                        />
-                      )}
                     </motion.button>
                   </div>
 
-                  {/* Start Button */}
+                  <p className="text-xs text-zinc-500 text-center">
+                    快速与排位使用独立匹配队列；排位赛胜负将影响 ELO。
+                  </p>
+
                   <Button
                     onClick={handleStartMatch}
+                    disabled={!selectedDeckId || loadingDecks}
                     className="w-full h-14 text-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                   >
                     <Swords className="w-5 h-5 mr-2" />
@@ -193,12 +247,10 @@ export default function MatchmakingPage() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.3 }}
             >
               <Card className="bg-zinc-900/90 border-purple-500/30 shadow-2xl">
                 <CardContent className="pt-8 pb-8">
                   <div className="flex flex-col items-center space-y-6">
-                    {/* Spinning Animation */}
                     <div className="relative">
                       <motion.div
                         animate={{ rotate: 360 }}
@@ -213,16 +265,12 @@ export default function MatchmakingPage() {
                         <Swords className="w-16 h-16 text-purple-400" />
                       </motion.div>
                     </div>
-
-                    {/* Status Text */}
                     <div className="text-center space-y-2">
                       <h2 className="text-2xl font-bold text-zinc-100">正在匹配对手...</h2>
                       <p className="text-zinc-400">
                         {selectedMode === "quick" ? "快速匹配" : "排位赛"} · 已等待 {searchTime} 秒
                       </p>
                     </div>
-
-                    {/* Cancel Button */}
                     <Button
                       onClick={handleCancelMatch}
                       variant="outline"
@@ -242,38 +290,16 @@ export default function MatchmakingPage() {
               key="found"
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.3 }}
             >
               <Card className="bg-zinc-900/90 border-emerald-500/50 shadow-2xl shadow-emerald-500/20">
                 <CardContent className="pt-8 pb-8">
                   <div className="flex flex-col items-center space-y-6">
-                    {/* Success Animation */}
-                    <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                      className="w-32 h-32 rounded-full bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center"
-                    >
+                    <div className="w-32 h-32 rounded-full bg-gradient-to-br from-emerald-500 to-green-500 flex items-center justify-center">
                       <Swords className="w-16 h-16 text-white" />
-                    </motion.div>
-
-                    {/* Status Text */}
+                    </div>
                     <div className="text-center space-y-2">
                       <h2 className="text-3xl font-bold text-emerald-400">匹配成功！</h2>
                       <p className="text-zinc-400">正在进入对局...</p>
-                    </div>
-
-                    {/* Loading dots */}
-                    <div className="flex space-x-2">
-                      {[0, 1, 2].map((i) => (
-                        <motion.div
-                          key={i}
-                          animate={{ y: [0, -10, 0] }}
-                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.1 }}
-                          className="w-3 h-3 rounded-full bg-emerald-500"
-                        />
-                      ))}
                     </div>
                   </div>
                 </CardContent>

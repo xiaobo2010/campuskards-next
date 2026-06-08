@@ -1,7 +1,10 @@
 """Redis cache client with graceful fallback."""
-import redis.asyncio as redis
-from typing import Optional, Any
 import logging
+from typing import Optional
+
+import redis.asyncio as redis
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +15,8 @@ async def get_redis() -> Optional[redis.Redis]:
     global _redis_client
     try:
         if _redis_client is None:
-            _redis_client = redis.Redis(
-                host="localhost",
-                port=6379,
+            _redis_client = redis.from_url(
+                settings.REDIS_URL,
                 decode_responses=True,
                 socket_connect_timeout=2,
             )

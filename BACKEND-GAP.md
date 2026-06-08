@@ -18,21 +18,28 @@
 | Admin | ✅ | stats / users / cards / announcements CRUD + pin |
 | Leaderboard | ✅ | 公开 ELO 排行 |
 
-## 待实现（P0）
+## 已实现（v1）— Match / WebSocket
 
-### Game / Match 对战系统
-
-前端 `matchmaking` 与 `play` 页面当前为 Mock，需后续补齐：
-
-| 方法 | 路径 | 说明 |
+| 方法 | 路径 | 状态 |
 |------|------|------|
-| POST | `/api/match/queue` | 加入匹配队列 |
-| DELETE | `/api/match/queue` | 取消匹配 |
-| GET | `/api/match/queue/status` | 匹配状态 |
-| GET | `/api/match/history` | 对战历史 |
-| GET | `/api/match/{id}` | 对战详情 |
-| POST | `/api/match/{id}/surrender` | 投降 |
-| WS | `/ws/game/{match_id}` | 实时对战状态同步 |
+| POST | `/api/match/queue` | ✅ |
+| DELETE | `/api/match/queue` | ✅ |
+| GET | `/api/match/queue/status` | ✅ |
+| GET | `/api/match/history` | ✅ |
+| GET | `/api/match/{id}` | ✅ |
+| POST | `/api/match/{id}/surrender` | ✅ |
+| WS | `/ws/game/{match_id}` | ✅ |
+
+**前端 `matchmaking` / `play` 已接入** REST + WebSocket（v1 可玩）。
+
+### v1 限制
+
+- 匹配队列：进程内 + Redis 镜像（`match:queue:quick` / `match:queue:ranked`）
+- 对战状态：Redis 持久化（`match:room:{id}`）；WS 连接仍在单进程内存
+- 多 worker / 水平扩展需 Redis Pub/Sub 广播（未实现）
+- 未实现：`use_ability`、派系协同/走廊控制
+- 已实现：100s 回合计时、`timer_warning`（≤20s）、超时自动结束回合
+- `play_card` 的 `slot` 参数 v1 仅追加到阵线末尾
 
 详细规格见 `DEVELOPMENT.md` 第四章 4.10 / 4.11。
 
@@ -73,6 +80,7 @@
 3. 商店卡包列表从 `shopApi.listPacks()` 拉取，UI 样式用本地 `PACK_DISPLAY` 映射
 4. 卡组创建需 30 张，主势力由卡牌多数 `faction_code` 推断
 5. `NEXT_PUBLIC_API_URL` 生产环境必须指向 `https://gapi.xiaobocloud.fun`
+6. 对战：queue → status 轮询 → `ws://<API>/ws/game/{match_id}?token=` → `join_match`
 
 ## P2 增强（可选）
 

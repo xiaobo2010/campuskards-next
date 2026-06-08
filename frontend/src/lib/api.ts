@@ -19,6 +19,12 @@ import type {
   CardUpdateIn,
   UserCardOwnership,
   UpgradeResult,
+  MatchQueueResponse,
+  MatchQueueStatus,
+  MatchMode,
+  MatchStats,
+  MatchHistoryItem,
+  MatchDetail,
 } from "@/types";
 
 // ---------- Error ----------
@@ -617,6 +623,56 @@ export const api = {
   },
   delete<T>(path: string): Promise<T> {
     return apiFetch<T>(path, { method: "DELETE" });
+  },
+};
+
+// ---------- Match API ----------
+
+export const matchApi = {
+  joinQueue(deckId: string, mode: MatchMode = "quick"): Promise<MatchQueueResponse> {
+    return apiFetch<MatchQueueResponse>("/api/match/queue", {
+      method: "POST",
+      body: JSON.stringify({ deck_id: deckId, mode }),
+    });
+  },
+
+  leaveQueue(mode?: MatchMode): Promise<{ status: string }> {
+    const qs = mode ? `?mode=${mode}` : "";
+    return apiFetch<{ status: string }>(`/api/match/queue${qs}`, { method: "DELETE" });
+  },
+
+  queueStatus(): Promise<MatchQueueStatus> {
+    return apiFetch<MatchQueueStatus>("/api/match/queue/status");
+  },
+
+  surrender(matchId: string): Promise<{ result: string; elo_change: number }> {
+    return apiFetch<{ result: string; elo_change: number }>(
+      `/api/match/${matchId}/surrender`,
+      { method: "POST" }
+    );
+  },
+
+  stats(): Promise<MatchStats> {
+    return apiFetch<MatchStats>("/api/match/stats");
+  },
+
+  history(params?: {
+    page?: number;
+    page_size?: number;
+    result?: "win" | "loss" | "draw";
+  }): Promise<PaginatedResponse<MatchHistoryItem>> {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.page_size) qs.set("page_size", String(params.page_size));
+    if (params?.result) qs.set("result", params.result);
+    const query = qs.toString();
+    return apiFetch<PaginatedResponse<MatchHistoryItem>>(
+      `/api/match/history${query ? `?${query}` : ""}`
+    );
+  },
+
+  getMatch(matchId: string): Promise<MatchDetail> {
+    return apiFetch<MatchDetail>(`/api/match/${matchId}`);
   },
 };
 

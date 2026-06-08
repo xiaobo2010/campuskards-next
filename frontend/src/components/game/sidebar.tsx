@@ -12,6 +12,7 @@ import {
   Settings2,
   Store,
   Trophy,
+  History,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -53,6 +54,7 @@ const PLAYER_NAV_ITEMS: NavItem[] = [
   { href: "/game/collection", label: "卡牌图鉴", icon: BookOpen },
   { href: "/game/decks", label: "我的卡组", icon: Briefcase },
   { href: "/game/leaderboard", label: "天梯排行", icon: Trophy },
+  { href: "/game/history", label: "对战历史", icon: History },
   { href: "/game/matchmaking", label: "开始对战", icon: Swords },
 ];
 

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 MAX_FRONT_LINE = 5  # max units in front line
 MAX_SUPPORT_LINE = 4  # max units in support line
 MAX_ADVISORS = 3  # max advisors per player
+MAX_LINE = MAX_FRONT_LINE  # legacy alias used by game_engine
 
 
 @dataclass
@@ -154,7 +155,7 @@ def check_corridor_control(field: PlayerField, opp_field: PlayerField) -> bool:
 
     Returns True if corridor control is active.
     """
-    return len(field.front_line) == MAX_LINE and len(opp_field.front_line) == 0
+    return len(field.front_line) == MAX_FRONT_LINE and len(opp_field.front_line) == 0
 
 
 def get_unit_by_uid(field: PlayerField, uid: str) -> Unit | None:
