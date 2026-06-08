@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Store as StoreIcon, ShoppingBag, Sparkles, Loader2 } from "lucide-react";
+import { Store as StoreIcon, ShoppingBag, Loader2, Info } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -96,6 +96,7 @@ function toShopPack(pack: PackDefinition): ShopPack {
 interface AnimationState {
   cards: PackResultCard[];
   packName: string;
+  packId: string;
   rerollToken?: string;
   canReroll?: boolean;
 }
@@ -126,6 +127,7 @@ export default function ShopPage() {
   const queryClient = useQueryClient();
   const [ink, setInk] = useState(0);
   const [confirmPack, setConfirmPack] = useState<ShopPack | null>(null);
+  const [rateInfoPack, setRateInfoPack] = useState<ShopPack | null>(null);
   const [faction, setFaction] = useState("");
   const [animation, setAnimation] = useState<AnimationState | null>(null);
 
@@ -180,6 +182,7 @@ export default function ShopPage() {
         setAnimation({
           cards: resultCards,
           packName: packs.find((p) => p.type === variables?.packType)?.name ?? "卡包",
+          packId: variables?.packType ?? "basic",
           rerollToken: data.can_reroll ? data.reroll_token ?? undefined : undefined,
           canReroll: data.can_reroll ?? false,
         });
@@ -229,14 +232,27 @@ export default function ShopPage() {
     toast.success("开包完成！", { description: "已保留全部卡牌" });
   };
 
-  const handleSelectorReroll = async (rerollToken: string, slotIndex: number) => {
+  const handleSelectorReroll = async (
+    rerollToken: string,
+    slotIndex: number
+  ): Promise<PackResultCard | null> => {
     const data = await shopApi.selectorReroll(rerollToken, slotIndex);
     invalidateShopQueries(queryClient);
     if (typeof data.remaining_ink === "number") setInk(data.remaining_ink);
     const replaced = data.cards?.[slotIndex];
+    if (!replaced) return null;
     toast.success("重抽成功！", {
-      description: replaced?.name ? `第 ${slotIndex + 1} 张已替换为 ${replaced.name}` : undefined,
+      description: replaced.name ? `第 ${slotIndex + 1} 张已替换为 ${replaced.name}` : undefined,
     });
+    return {
+      name: replaced.name || `卡牌 #${replaced.card_id}`,
+      rarity: replaced.rarity || "common",
+      faction: replaced.faction_code || "unknown",
+      id: replaced.card_id,
+      faction_code: replaced.faction_code,
+      slot_index: slotIndex,
+      is_new: replaced.is_new,
+    };
   };
 
   const selectorMode: SelectorModeProps | undefined =
@@ -340,18 +356,28 @@ export default function ShopPage() {
                         🔒 ELO 不足（需≥{pack.requiresElo}）
                       </Button>
                     ) : (
-                      <Button
-                        className="w-full"
-                        onClick={() => setConfirmPack(pack)}
-                        disabled={cantAfford || buyPackMutation.isPending}
-                      >
-                        <ShoppingBag className="w-4 h-4 mr-2" />
-                        {cantAfford
-                          ? isElo
-                            ? "ELO 不足"
-                            : "墨水不足"
-                          : "购买"}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 bg-purple-600 hover:bg-purple-500"
+                          onClick={() => setConfirmPack(pack)}
+                          disabled={cantAfford || buyPackMutation.isPending}
+                        >
+                          <ShoppingBag className="w-4 h-4 mr-2" />
+                          {cantAfford
+                            ? isElo
+                              ? "ELO 不足"
+                              : "墨水不足"
+                            : "购买"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="shrink-0 border-zinc-600"
+                          onClick={() => setRateInfoPack(pack)}
+                        >
+                          <Info className="w-4 h-4 mr-1" />
+                          爆率说明
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </CardContent>
@@ -360,6 +386,37 @@ export default function ShopPage() {
           );
         })}
       </div>
+
+      {/* 爆率说明 */}
+      <Dialog open={!!rateInfoPack} onOpenChange={() => setRateInfoPack(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {rateInfoPack?.icon} {rateInfoPack?.name} · 爆率说明
+            </DialogTitle>
+            <DialogDescription>各稀有度出现概率与包内规则</DialogDescription>
+          </DialogHeader>
+          {rateInfoPack && (
+            <div className="space-y-3 py-2 text-sm text-muted-foreground leading-relaxed">
+              <p>{rateInfoPack.description}</p>
+              <p className="text-xs text-zinc-500">
+                包含 {rateInfoPack.cards} 张卡牌
+                {rateInfoPack.costType === "elo"
+                  ? ` · 价格 ${rateInfoPack.cost} ELO`
+                  : ` · 价格 ${rateInfoPack.cost} 墨水`}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              className="bg-purple-600 hover:bg-purple-500"
+              onClick={() => setRateInfoPack(null)}
+            >
+              知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm Purchase Dialog */}
       <Dialog open={!!confirmPack} onOpenChange={() => setConfirmPack(null)}>
@@ -439,6 +496,7 @@ export default function ShopPage() {
               取消
             </Button>
             <Button
+              className="bg-purple-600 hover:bg-purple-500"
               onClick={executeBuy}
               disabled={
                 !confirmPack ||
@@ -466,6 +524,7 @@ export default function ShopPage() {
         <PackOpeningAnimation
           cards={animation.cards}
           packName={animation.packName}
+          packId={animation.packId}
           selectorMode={selectorMode}
           onClose={() => {
             setAnimation(null);

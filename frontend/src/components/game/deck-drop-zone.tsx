@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -49,10 +49,18 @@ export interface DeckDropZoneProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const MAX_COPIES_PER_CARD = 3;
+const LIB_PREFIX = "lib-";
+
 function getCardTypeCategory(cardType: string): "unit" | "effect" | "counter" {
-  if (cardType === "unit") return "unit";
-  if (cardType === "effect") return "effect";
-  return "counter";
+  const t = cardType.toLowerCase();
+  if (t === "counter") return "counter";
+  if (t === "command" || t === "buff" || t === "effect" || t === "spell") return "effect";
+  return "unit";
+}
+
+function slotId(index: number): string {
+  return `deck-slot-${index}`;
 }
 
 function getCategoryLabel(cat: string): string {
@@ -73,7 +81,7 @@ function getCategoryLabel(cat: string): string {
 interface FilledSlotProps {
   id: string;
   card: Card;
-  onRemove: (id: string) => void;
+  onRemove: () => void;
 }
 
 function FilledSlot({ id, card, onRemove }: FilledSlotProps) {
@@ -109,7 +117,7 @@ function FilledSlot({ id, card, onRemove }: FilledSlotProps) {
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onRemove(id);
+          onRemove();
         }}
         onPointerDown={(e) => e.stopPropagation()}
         className="absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/80 transition-colors"
@@ -196,10 +204,61 @@ function DragOverlayCard({ card }: { card: Card }) {
   );
 }
 
+// ─── Library Card (Draggable) ─────────────────────────────────────────────────
+
+export function DeckLibraryCard({
+  card,
+  isSelected,
+  copyCount,
+  onClick,
+}: {
+  card: Card;
+  isSelected: boolean;
+  copyCount: number;
+  onClick: () => void;
+}) {
+  const cat = getCardTypeCategory(card.card_type);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `${LIB_PREFIX}${card.id}`,
+  });
+
+  const style: React.CSSProperties = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      onClick={onClick}
+      className={`relative p-2 rounded-lg border cursor-pointer transition-all select-none ${
+        cat === "unit"
+          ? "bg-emerald-950/30"
+          : cat === "effect"
+            ? "bg-blue-950/30"
+            : "bg-amber-950/30"
+      } ${isSelected ? "border-emerald-500 ring-1 ring-emerald-500/50" : "border-zinc-700 bg-zinc-800/40 hover:border-zinc-500"}`}
+      {...attributes}
+      {...listeners}
+    >
+      <p className="text-xs font-medium text-zinc-200 truncate">{card.name}</p>
+      <p className="text-[10px] text-zinc-500">
+        {cat === "unit" ? "🐾" : cat === "effect" ? "✨" : "🛡️"}{" "}
+        {card.faction_code} · 💰{card.cost}
+      </p>
+      {copyCount > 0 && (
+        <div className="absolute -top-1 -right-1 min-w-4 h-4 px-0.5 rounded-full bg-emerald-500 flex items-center justify-center">
+          <span className="text-white text-[8px] font-bold">{copyCount}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const EMPTY_SLOT_ID = "deck-empty-slot";
-const DROP_ZONE_ID = "deck-drop-zone";
 
 function DeckDropZone({
   selectedCardIds,
@@ -230,9 +289,9 @@ function DeckDropZone({
         return false;
       }
 
-      // Duplicate check
-      if (selectedCardIds.includes(cardId)) {
-        toast.error(`「${card.name}」已在卡组中`);
+      const copyCount = selectedCardIds.filter((id) => id === cardId).length;
+      if (copyCount >= MAX_COPIES_PER_CARD) {
+        toast.error(`「${card.name}」已达 ${MAX_COPIES_PER_CARD} 张上限`);
         return false;
       }
 
@@ -277,43 +336,35 @@ function DeckDropZone({
       const activeIdStr = String(active.id);
       const overIdStr = String(over.id);
 
-      // Case 1: Reordering within the deck (sortable → sortable)
-      if (
-        selectedCardIds.includes(activeIdStr) &&
-        selectedCardIds.includes(overIdStr)
-      ) {
-        if (activeIdStr !== overIdStr) {
-          const oldIndex = selectedCardIds.indexOf(activeIdStr);
-          const newIndex = selectedCardIds.indexOf(overIdStr);
+      const isDeckSlot = (id: string) => id.startsWith("deck-slot-");
+      const slotIndex = (id: string) => parseInt(id.replace("deck-slot-", ""), 10);
+
+      // Case 1: Reordering within the deck
+      if (isDeckSlot(activeIdStr) && isDeckSlot(overIdStr)) {
+        const oldIndex = slotIndex(activeIdStr);
+        const newIndex = slotIndex(overIdStr);
+        if (oldIndex !== newIndex && !Number.isNaN(oldIndex) && !Number.isNaN(newIndex)) {
           onChange(arrayMove(selectedCardIds, oldIndex, newIndex));
         }
         return;
       }
 
-      // Case 2: Dragging an existing card out of the deck (no valid over target)
-      if (selectedCardIds.includes(activeIdStr) && !over) {
-        onChange(selectedCardIds.filter((id) => id !== activeIdStr));
-        return;
-      }
-
-      // Case 3: Dragging external card into the deck
-      if (
-        !selectedCardIds.includes(activeIdStr) &&
-        (overIdStr === EMPTY_SLOT_ID ||
-          overIdStr === DROP_ZONE_ID ||
-          selectedCardIds.includes(overIdStr))
-      ) {
-        if (!validateCard(activeIdStr)) return;
-
-        // If dropped on an existing card, insert before it
-        if (selectedCardIds.includes(overIdStr)) {
-          const insertIndex = selectedCardIds.indexOf(overIdStr);
-          const newIds = [...selectedCardIds];
-          newIds.splice(insertIndex, 0, activeIdStr);
-          onChange(newIds);
-        } else {
-          // Append to end
-          onChange([...selectedCardIds, activeIdStr]);
+      // Case 2: Dragging from library into the deck
+      if (activeIdStr.startsWith(LIB_PREFIX)) {
+        const cardId = activeIdStr.slice(LIB_PREFIX.length);
+        if (
+          overIdStr === EMPTY_SLOT_ID ||
+          isDeckSlot(overIdStr)
+        ) {
+          if (!validateCard(cardId)) return;
+          if (isDeckSlot(overIdStr)) {
+            const insertIndex = slotIndex(overIdStr);
+            const newIds = [...selectedCardIds];
+            newIds.splice(insertIndex, 0, cardId);
+            onChange(newIds);
+          } else {
+            onChange([...selectedCardIds, cardId]);
+          }
         }
       }
     },
@@ -322,14 +373,24 @@ function DeckDropZone({
 
   // Handle card removal via click
   const handleRemoveCard = useCallback(
-    (cardId: string) => {
-      onChange(selectedCardIds.filter((id) => id !== cardId));
+    (index: number) => {
+      onChange(selectedCardIds.filter((_, i) => i !== index));
     },
     [selectedCardIds, onChange]
   );
 
-  // Active card for DragOverlay
-  const activeCard = activeId ? cardMap[activeId] : null;
+  const activeCard = useMemo(() => {
+    if (!activeId) return null;
+    if (activeId.startsWith(LIB_PREFIX)) {
+      return cardMap[activeId.slice(LIB_PREFIX.length)] ?? null;
+    }
+    if (activeId.startsWith("deck-slot-")) {
+      const idx = parseInt(activeId.replace("deck-slot-", ""), 10);
+      const cardId = selectedCardIds[idx];
+      return cardId ? (cardMap[cardId] ?? null) : null;
+    }
+    return null;
+  }, [activeId, cardMap, selectedCardIds]);
 
   return (
     <DndContext
@@ -348,20 +409,19 @@ function DeckDropZone({
         >
           <div className="flex items-center gap-2 min-w-min px-2 py-2">
             <SortableContext
-              items={selectedCardIds}
+              items={selectedCardIds.map((_, i) => slotId(i))}
               strategy={horizontalListSortingStrategy}
             >
               <AnimatePresence mode="popLayout">
-                {/* Filled slots */}
-                {selectedCardIds.map((cardId) => {
+                {selectedCardIds.map((cardId, index) => {
                   const card = cardMap[cardId];
                   if (!card) return null;
                   return (
                     <FilledSlot
-                      key={cardId}
-                      id={cardId}
+                      key={`${cardId}-${index}`}
+                      id={slotId(index)}
                       card={card}
-                      onRemove={handleRemoveCard}
+                      onRemove={() => handleRemoveCard(index)}
                     />
                   );
                 })}

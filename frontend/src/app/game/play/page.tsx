@@ -24,7 +24,12 @@ import { useMatchStore } from "@/store/useMatchStore";
 import { useTurnTimer } from "@/hooks/use-turn-timer";
 import BattleTurnTimer, { MatchElapsedClock } from "@/components/game/battle/battle-turn-timer";
 import BattleTimerWarning from "@/components/game/battle/battle-timer-warning";
-import BattleCard, { CardBackStack, EmptyBattleSlot } from "@/components/game/battle/battle-card";
+import BattleCard, {
+  CardBackStack,
+  EmptyBattleSlot,
+  PlacementSlot,
+} from "@/components/game/battle/battle-card";
+import BattleResultScreen from "@/components/game/battle/battle-result-screen";
 import type { BattleUnit, GameOverPayload, GameStatePayload } from "@/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -35,6 +40,14 @@ const PHASE_LABEL: Record<string, string> = {
   combat: "战斗",
   end: "结束",
 };
+
+const MAX_FRONT_SLOTS = 5;
+const MAX_SUPPORT_SLOTS = 4;
+
+function isDeployableCard(card: BattleUnit): boolean {
+  const t = (card.card_type ?? "character").toLowerCase();
+  return t === "character" || t === "unit";
+}
 
 function HpBar({ hp, maxHp }: { hp: number; maxHp: number }) {
   const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
@@ -100,6 +113,83 @@ function LineRow({
   );
 }
 
+function DeployLineRow({
+  label,
+  icon,
+  units,
+  lineKey,
+  maxSlots,
+  onUnitClick,
+  selectedUid,
+  interactive,
+  placementCard,
+  onPlacementSelect,
+  onDropCard,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  units: BattleUnit[];
+  lineKey: "front" | "support";
+  maxSlots: number;
+  onUnitClick?: (u: BattleUnit) => void;
+  selectedUid?: string | null;
+  interactive?: boolean;
+  placementCard?: BattleUnit | null;
+  onPlacementSelect?: (line: "front" | "support") => void;
+  onDropCard?: (cardUid: string, line: "front" | "support") => void;
+}) {
+  const canPlaceMore = units.length < maxSlots;
+  const showPlacementSlot = !!placementCard && canPlaceMore;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider">
+        {icon}
+        {label}
+        {showPlacementSlot && (
+          <span className="text-purple-400 normal-case tracking-normal">· 点击虚线框放置</span>
+        )}
+      </div>
+      <div
+        className={cn(
+          "flex gap-2 min-h-[8rem] flex-wrap justify-center items-end rounded-xl p-1 transition-colors",
+          placementCard && canPlaceMore && "bg-purple-500/5"
+        )}
+        onDragOver={(e) => {
+          if (!canPlaceMore) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!canPlaceMore) return;
+          const uid = e.dataTransfer.getData("text/card-uid");
+          if (uid) onDropCard?.(uid, lineKey);
+        }}
+      >
+        {units.map((u) => (
+          <BattleCard
+            key={u.uid}
+            unit={u}
+            variant="field"
+            selected={selectedUid === u.uid}
+            onClick={interactive ? () => onUnitClick?.(u) : undefined}
+            disabled={!interactive}
+          />
+        ))}
+        {showPlacementSlot && (
+          <PlacementSlot
+            active
+            lineLabel={label}
+            onClick={() => onPlacementSelect?.(lineKey)}
+          />
+        )}
+        {!placementCard && units.length === 0 && <EmptyBattleSlot />}
+      </div>
+    </div>
+  );
+}
+
 function PlayPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -113,19 +203,18 @@ function PlayPageInner() {
   const gameState = useMatchStore((s) => s.gameState);
   const connectionStatus = useMatchStore((s) => s.connectionStatus);
   const lastError = useMatchStore((s) => s.lastError);
-  const deployLine = useMatchStore((s) => s.deployLine);
   const selectedAttackerUid = useMatchStore((s) => s.selectedAttackerUid);
 
   const setGameState = useMatchStore((s) => s.setGameState);
   const setConnectionStatus = useMatchStore((s) => s.setConnectionStatus);
   const setLastError = useMatchStore((s) => s.setLastError);
-  const setDeployLine = useMatchStore((s) => s.setDeployLine);
   const setSelectedAttackerUid = useMatchStore((s) => s.setSelectedAttackerUid);
   const setCurrentGame = useMatchStore((s) => s.setCurrentGame);
   const resetMatch = useMatchStore((s) => s.resetMatch);
 
   const [gameOver, setGameOver] = useState<GameOverPayload | null>(null);
   const [surrendering, setSurrendering] = useState(false);
+  const [placementCard, setPlacementCard] = useState<BattleUnit | null>(null);
 
   const matchId = matchIdFromUrl || storedMatchId;
   const viewer = gameState?.viewer ?? "p1";
@@ -221,7 +310,26 @@ function PlayPageInner() {
     return () => clearInterval(id);
   }, [connectionStatus]);
 
-  const handlePlayCard = (card: BattleUnit) => {
+  const handlePlayCard = (card: BattleUnit, line: "front" | "support" = "front") => {
+    if (!isMyTurn || phase !== "main" || !me) {
+      toast.info("只能在己方主阶段出牌");
+      return;
+    }
+    if (card.cost != null && card.cost > me.ink) {
+      toast.error("墨水不足");
+      return;
+    }
+    const targetLine = line === "front" ? me.front_line : me.support_line;
+    const maxSlots = line === "front" ? MAX_FRONT_SLOTS : MAX_SUPPORT_SLOTS;
+    if (isDeployableCard(card) && targetLine.length >= maxSlots) {
+      toast.error(`${line === "front" ? "前线" : "支援"}已满`);
+      return;
+    }
+    wsRef.current?.playCard(card.uid, line);
+    setPlacementCard(null);
+  };
+
+  const handleHandDoubleClick = (card: BattleUnit) => {
     if (!isMyTurn || phase !== "main") {
       toast.info("只能在己方主阶段出牌");
       return;
@@ -230,7 +338,17 @@ function PlayPageInner() {
       toast.error("墨水不足");
       return;
     }
-    wsRef.current?.playCard(card.uid, deployLine);
+    if (!isDeployableCard(card)) {
+      handlePlayCard(card, "front");
+      return;
+    }
+    setPlacementCard((prev) => (prev?.uid === card.uid ? null : card));
+  };
+
+  const handleDropOnLine = (cardUid: string, line: "front" | "support") => {
+    const card = me?.hand?.find((c) => c.uid === cardUid);
+    if (!card) return;
+    handlePlayCard(card, line);
   };
 
   const handleMyUnitClick = (unit: BattleUnit) => {
@@ -450,21 +568,31 @@ function PlayPageInner() {
               </div>
             </div>
             <div className="space-y-3">
-              <LineRow
+              <DeployLineRow
                 label="前线"
                 icon={<Swords className="w-3 h-3 text-emerald-500" />}
                 units={me.front_line}
+                lineKey="front"
+                maxSlots={MAX_FRONT_SLOTS}
                 onUnitClick={handleMyUnitClick}
                 selectedUid={selectedAttackerUid}
                 interactive={isMyTurn}
+                placementCard={placementCard}
+                onPlacementSelect={(line) => placementCard && handlePlayCard(placementCard, line)}
+                onDropCard={handleDropOnLine}
               />
-              <LineRow
+              <DeployLineRow
                 label="支援"
                 icon={<Shield className="w-3 h-3 text-emerald-500" />}
                 units={me.support_line}
+                lineKey="support"
+                maxSlots={MAX_SUPPORT_SLOTS}
                 onUnitClick={handleMyUnitClick}
                 selectedUid={selectedAttackerUid}
                 interactive={isMyTurn}
+                placementCard={placementCard}
+                onPlacementSelect={(line) => placementCard && handlePlayCard(placementCard, line)}
+                onDropCard={handleDropOnLine}
               />
             </div>
           </motion.section>
@@ -477,7 +605,16 @@ function PlayPageInner() {
           className="rounded-2xl border border-purple-800/30 bg-gradient-to-t from-purple-950/20 to-zinc-900/60 p-3 pb-4"
         >
           <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-2 text-center">
-            手牌 · 点击出牌
+            手牌 · 拖拽到阵线 / 双击选择放置位置
+            {placementCard && (
+              <button
+                type="button"
+                className="ml-2 text-purple-400 normal-case"
+                onClick={() => setPlacementCard(null)}
+              >
+                取消
+              </button>
+            )}
           </p>
           <div className="flex gap-2 overflow-x-auto pb-2 justify-center min-h-[7.5rem] items-end">
             {me?.hand && me.hand.length > 0 ? (
@@ -486,7 +623,13 @@ function PlayPageInner() {
                   key={card.uid}
                   unit={card}
                   variant="hand"
-                  onClick={() => handlePlayCard(card)}
+                  draggable={isMyTurn && phase === "main" && isDeployableCard(card)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/card-uid", card.uid);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDoubleClick={() => handleHandDoubleClick(card)}
+                  placementPending={placementCard?.uid === card.uid}
                   disabled={!isMyTurn || phase !== "main"}
                   affordable={card.cost == null || card.cost <= (me?.ink ?? 0)}
                 />
@@ -499,23 +642,6 @@ function PlayPageInner() {
           </div>
 
           <div className="flex flex-wrap gap-2 justify-center items-center mt-2">
-            <div className="flex rounded-lg border border-zinc-700 overflow-hidden text-xs">
-              {(["front", "support"] as const).map((line) => (
-                <button
-                  key={line}
-                  type="button"
-                  onClick={() => setDeployLine(line)}
-                  className={cn(
-                    "px-3 py-2 transition-colors",
-                    deployLine === line
-                      ? "bg-purple-600 text-white"
-                      : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
-                  )}
-                >
-                  {line === "front" ? "前线" : "支援"}
-                </button>
-              ))}
-            </div>
             <Button
               className="gap-2 bg-purple-600 hover:bg-purple-500"
               onClick={handleEndTurn}
@@ -528,45 +654,14 @@ function PlayPageInner() {
         </motion.section>
       </div>
 
-      {/* 结算 */}
       {gameOver && gameState && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl"
-          >
-            <div
-              className={cn(
-                "w-16 h-16 rounded-full mx-auto flex items-center justify-center text-2xl",
-                gameOver.winner_id === user?.id
-                  ? "bg-emerald-500/20 text-emerald-400"
-                  : "bg-red-500/20 text-red-400"
-              )}
-            >
-              {gameOver.winner_id === user?.id ? "胜" : "负"}
-            </div>
-            <h2 className="text-xl font-bold">
-              {gameOver.winner_id === user?.id ? "胜利！" : "战败"}
-            </h2>
-            {gameOver.mode === "ranked" && (
-              <p className="text-sm text-zinc-400">
-                ELO {gameOver.elo_change[viewer] >= 0 ? "+" : ""}
-                {gameOver.elo_change[viewer]}
-              </p>
-            )}
-            <div className="flex flex-col gap-2">
-              {matchId && (
-                <Button asChild variant="outline" className="w-full border-zinc-700">
-                  <Link href={`/game/history/${matchId}`}>查看战报</Link>
-                </Button>
-              )}
-              <Button className="w-full bg-purple-600 hover:bg-purple-500" onClick={handleBackToLobby}>
-                返回匹配
-              </Button>
-            </div>
-          </motion.div>
-        </div>
+        <BattleResultScreen
+          gameOver={gameOver}
+          viewer={viewer}
+          userId={user?.id}
+          matchId={matchId ?? undefined}
+          onBackToLobby={handleBackToLobby}
+        />
       )}
     </div>
   );

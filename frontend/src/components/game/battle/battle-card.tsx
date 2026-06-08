@@ -25,6 +25,11 @@ interface BattleCardProps {
   disabled?: boolean;
   affordable?: boolean;
   onClick?: () => void;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDoubleClick?: () => void;
+  placementPending?: boolean;
 }
 
 export default function BattleCard({
@@ -34,15 +39,21 @@ export default function BattleCard({
   disabled,
   affordable = true,
   onClick,
+  draggable,
+  onDragStart,
+  onDragEnd,
+  onDoubleClick,
+  placementPending,
 }: BattleCardProps) {
   const isHand = variant === "hand";
   const grad = factionStyle(unit.faction);
 
-  return (
+  const cardButton = (
     <motion.button
       type="button"
       disabled={disabled}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       whileHover={!disabled ? { y: isHand ? -10 : -4, scale: 1.03 } : undefined}
       whileTap={!disabled ? { scale: 0.97 } : undefined}
       className={cn(
@@ -50,6 +61,7 @@ export default function BattleCard({
         grad,
         isHand ? "w-[4.5rem] h-[6.5rem] sm:w-20 sm:h-[7.5rem]" : "w-20 h-28 sm:w-[5.5rem] sm:h-32",
         selected && "ring-2 ring-amber-400 border-amber-400 scale-105 z-10 shadow-lg shadow-amber-500/25",
+        placementPending && "ring-2 ring-purple-400 border-purple-400 animate-pulse",
         disabled && "opacity-45 cursor-not-allowed grayscale-[0.3]",
         !affordable && isHand && "opacity-60",
         unit.can_attack && !disabled && !isHand && "shadow-[0_0_12px_rgba(251,191,36,0.4)]"
@@ -90,6 +102,21 @@ export default function BattleCard({
       )}
     </motion.button>
   );
+
+  if (draggable && !disabled) {
+    return (
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        className="shrink-0 cursor-grab active:cursor-grabbing"
+      >
+        {cardButton}
+      </div>
+    );
+  }
+
+  return cardButton;
 }
 
 export function EmptyBattleSlot() {
@@ -97,6 +124,32 @@ export function EmptyBattleSlot() {
     <div className="w-20 h-28 sm:w-[5.5rem] sm:h-32 rounded-xl border-2 border-dashed border-zinc-700/60 bg-zinc-900/30 flex items-center justify-center">
       <span className="text-[10px] text-zinc-600">空位</span>
     </div>
+  );
+}
+
+export function PlacementSlot({
+  onClick,
+  active,
+  lineLabel,
+}: {
+  onClick?: () => void;
+  active?: boolean;
+  lineLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-20 h-28 sm:w-[5.5rem] sm:h-32 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 transition-all shrink-0",
+        active
+          ? "border-purple-400 bg-purple-500/15 shadow-lg shadow-purple-500/20 animate-pulse cursor-pointer"
+          : "border-zinc-600/80 bg-zinc-900/40 hover:border-purple-500/50 cursor-pointer"
+      )}
+    >
+      <span className="text-[10px] text-purple-300 font-medium">放置</span>
+      {lineLabel && <span className="text-[9px] text-zinc-500">{lineLabel}</span>}
+    </button>
   );
 }
 

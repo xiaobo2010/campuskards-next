@@ -13,6 +13,7 @@ import {
   Store,
   Trophy,
   History,
+  Palette,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -21,7 +22,7 @@ import {
   Camera,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { api } from "@/lib/api";
+import { api, DEMO_MODE_ENABLED } from "@/lib/api";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -56,6 +57,9 @@ const PLAYER_NAV_ITEMS: NavItem[] = [
   { href: "/game/leaderboard", label: "天梯排行", icon: Trophy },
   { href: "/game/history", label: "对战历史", icon: History },
   { href: "/game/matchmaking", label: "开始对战", icon: Swords },
+  ...(DEMO_MODE_ENABLED
+    ? [{ href: "/game/verify", label: "UI 验证", icon: Palette }]
+    : []),
 ];
 
 const ADMIN_NAV_ITEM: NavItem = {

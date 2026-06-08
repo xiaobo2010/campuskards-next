@@ -265,12 +265,37 @@ export interface GameStatePayload {
   };
 }
 
+export interface BattlePackDrop {
+  pack_id: string;
+  name: string;
+  cards: {
+    card_id: string;
+    name: string;
+    rarity: string;
+    faction_code?: string;
+    is_new?: boolean;
+  }[];
+}
+
+export interface BattleRewards {
+  ink: number;
+  packs: BattlePackDrop[];
+}
+
 export interface GameOverPayload {
   winner_id: string;
   elo_change: { p1: number; p2: number };
   reason: string;
   mode?: MatchMode;
   battle_report_id?: string;
+  rewards?: BattleRewards;
+  battle_summary?: {
+    total_events: number;
+    action_counts: Record<string, number>;
+  };
+  turns_played?: number;
+  players?: BattleReport["players"];
+  event_log?: BattleReportEvent[];
 }
 
 export interface MatchHistoryItem {
@@ -362,6 +387,39 @@ export interface MatchDetail {
   started_at?: string | null;
   ended_at?: string | null;
   replay_data?: BattleReport | null;
+}
+
+// ---------- Shop ----------
+
+export interface PackDefinition {
+  id: string;
+  name: string;
+  description: string;
+  price_ink: number;
+  cards_count: number;
+  cost_type?: string;
+  price_elo?: number;
+  min_elo?: number;
+}
+
+export interface PackOpenCard {
+  card_id: string;
+  name?: string;
+  rarity?: string;
+  faction_code?: string;
+  is_new?: boolean;
+  slot_index?: number;
+}
+
+export interface PackOpenResult {
+  pack_id?: string;
+  cards: PackOpenCard[];
+  new?: string[];
+  fragments?: Record<string, number>;
+  remaining_ink?: number;
+  remaining_elo?: number;
+  can_reroll?: boolean;
+  reroll_token?: string | null;
 }
 
 // ---------- Pagination ----------

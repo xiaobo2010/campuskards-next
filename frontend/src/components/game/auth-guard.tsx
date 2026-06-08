@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { DEMO_MODE_ENABLED } from "@/lib/api";
+
+/** Routes accessible without login when demo mode is on (UI review only). */
+const DEMO_PUBLIC_ROUTES = ["/game/verify"];
 
 /**
  * AuthGuard — client-side session gate.
@@ -11,12 +15,16 @@ import { useAuth } from "@/lib/auth-context";
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+
+  const isDemoPublicRoute =
+    DEMO_MODE_ENABLED && DEMO_PUBLIC_ROUTES.some((r) => pathname?.startsWith(r));
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !isDemoPublicRoute) {
       router.replace("/auth/login");
     }
-  }, [loading, user, router]);
+  }, [loading, user, router, isDemoPublicRoute]);
 
   if (loading) {
     return (
@@ -26,7 +34,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user && !isDemoPublicRoute) {
     return null;
   }
 

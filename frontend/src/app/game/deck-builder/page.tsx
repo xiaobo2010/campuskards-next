@@ -2,20 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import {
-  DndContext,
-  DragOverlay,
-  type DragStartEvent,
-  type DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-} from "@dnd-kit/core";
-import {
-  collectionApi,
-  decksApi,
-} from "@/lib/api";
+import { collectionApi, decksApi } from "@/lib/api";
 import type { Card, DeckCreateRequest, UserCardOwnership } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,19 +18,20 @@ import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { Package, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DeckDropZone } from "@/components/game/deck-drop-zone";
+import { DeckDropZone, DeckLibraryCard } from "@/components/game/deck-drop-zone";
 
 const DECK_SIZE = 30;
 const UNIT_MAX = 22;
 const EFFECT_MAX = 20;
 const COUNTER_MAX = 10;
+const MAX_COPIES = 3;
 
 type TypeFilter = "all" | "Unit" | "Effect" | "Counter";
 
 function getCategory(cardType: string): "Unit" | "Effect" | "Counter" {
   const t = cardType.toLowerCase();
   if (t === "counter") return "Counter";
-  if (t === "command" || t === "buff") return "Effect";
+  if (t === "command" || t === "buff" || t === "effect" || t === "spell") return "Effect";
   return "Unit";
 }
 
@@ -61,37 +49,22 @@ export default function DeckBuilderPage() {
   const router = useRouter();
   const { user } = useAuth();
 
-  // Card library state
   const [cards, setCards] = useState<Card[]>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
   const [cardsError, setCardsError] = useState<string | null>(null);
-
-  // Deck creation state
   const [newDeckName, setNewDeckName] = useState("");
   const [creating, setCreating] = useState(false);
-
-  // Filter state
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
-
-  // Drag state
-  const [activeCard, setActiveCard] = useState<Card | null>(null);
-
-  // Selection state: array of card IDs (in selection order)
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
 
-  // DndKit sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
-
-  // Card map for DeckDropZone
   const cardMap = useMemo(() => {
     const map: Record<string, Card> = {};
-    cards.forEach((c) => { map[c.id] = c; });
+    cards.forEach((c) => {
+      map[c.id] = c;
+    });
     return map;
   }, [cards]);
 
-  // Category counts
   const categoryCounts = useMemo(() => {
     const counts = { unit: 0, effect: 0, counter: 0 };
     selectedCardIds.forEach((id) => {
@@ -106,12 +79,19 @@ export default function DeckBuilderPage() {
     return counts;
   }, [selectedCardIds, cardMap]);
 
+  const copyCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    selectedCardIds.forEach((id) => {
+      counts[id] = (counts[id] ?? 0) + 1;
+    });
+    return counts;
+  }, [selectedCardIds]);
+
   const deckSize = selectedCardIds.length;
   const warnings: string[] = [];
   if (deckSize > 0 && deckSize < DECK_SIZE)
     warnings.push(`卡组需要 ${DECK_SIZE} 张牌，当前 ${deckSize} 张`);
-  if (deckSize > DECK_SIZE)
-    warnings.push(`卡组不能超过 ${DECK_SIZE} 张`);
+  if (deckSize > DECK_SIZE) warnings.push(`卡组不能超过 ${DECK_SIZE} 张`);
   if (categoryCounts.unit > UNIT_MAX)
     warnings.push(`生物牌超过 ${UNIT_MAX} 张上限`);
   if (categoryCounts.effect > EFFECT_MAX)
@@ -119,7 +99,6 @@ export default function DeckBuilderPage() {
   if (categoryCounts.counter > COUNTER_MAX)
     warnings.push(`反击牌超过 ${COUNTER_MAX} 张上限`);
 
-  // Load user's collection
   const loadCards = useCallback(() => {
     setCardsLoading(true);
     setCardsError(null);
@@ -129,14 +108,14 @@ export default function DeckBuilderPage() {
         const cardList = (items ?? []).map((uc: UserCardOwnership) => ({
           id: uc.card?.id ?? uc.card_id,
           name: uc.card?.name ?? "未知",
-          card_type: uc.card?.card_type ?? "Unit",
+          card_type: uc.card?.card_type ?? "unit",
           faction_code: uc.card?.faction_code ?? "neutral",
           cost: uc.card?.cost ?? 0,
           power: uc.card?.power ?? null,
           grit: uc.card?.grit ?? null,
           spirit: uc.card?.spirit ?? null,
           effect_text: uc.card?.effect_text ?? null,
-          rarity: uc.card?.rarity ?? "Common",
+          rarity: uc.card?.rarity ?? "common",
           image_url: uc.card?.image_url ?? null,
         }));
         setCards(cardList);
@@ -149,64 +128,33 @@ export default function DeckBuilderPage() {
     loadCards();
   }, [loadCards]);
 
-  // Type filter
   const filteredCards = useMemo(() => {
     if (typeFilter === "all") return cards;
     return cards.filter((c) => getCategory(c.card_type) === typeFilter);
   }, [cards, typeFilter]);
 
-  // DndKit handlers
-  const handleDragStart = (event: DragStartEvent) => {
-    const cardId = event.active.id as string;
-    const card = cardMap[cardId];
-    if (card) setActiveCard(card);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveCard(null);
-
-    if (!over) return;
-
-    const draggedCardId = active.id as string;
-    const card = cardMap[draggedCardId];
-    if (!card) return;
-
-    // If dragged over the drop zone area (over.id starts with "deck-slot" or "deck-drop-zone")
-    const overId = String(over.id);
-
-    // Card is from library (not already in deck) → add to deck
-    if (!selectedCardIds.includes(draggedCardId)) {
-      // Validate category limit
-      const cat = getCategory(card.card_type);
-      const catKey = cat === "Unit" ? "unit" : cat === "Effect" ? "effect" : "counter";
-      const limit = catKey === "unit" ? UNIT_MAX : catKey === "effect" ? EFFECT_MAX : COUNTER_MAX;
-
-      if (categoryCounts[catKey] >= limit) {
-        const catName = cat === "Unit" ? "生物" : cat === "Effect" ? "效果" : "反击";
-        toast.error(`${catName}牌已达上限 (${limit})`);
-        return;
-      }
-
-      setSelectedCardIds((prev) => [...prev, draggedCardId]);
-    }
-  };
-
-  // Deck card change handler from DeckDropZone
-  const handleDeckChange = (newIds: string[]) => {
-    setSelectedCardIds(newIds);
-  };
-
-  // Toggle card selection (click fallback)
   const toggleCard = (cardId: string) => {
     setSelectedCardIds((prev) => {
-      if (prev.includes(cardId)) return prev.filter((id) => id !== cardId);
+      const copyCount = prev.filter((id) => id === cardId).length;
+      if (copyCount > 0) {
+        const idx = prev.lastIndexOf(cardId);
+        return prev.filter((_, i) => i !== idx);
+      }
       const card = cardMap[cardId];
       if (!card) return prev;
+      if (prev.length >= DECK_SIZE) {
+        toast.error(`卡组已满（${DECK_SIZE} 张）`);
+        return prev;
+      }
+      if (copyCount >= MAX_COPIES) {
+        toast.error(`单卡最多 ${MAX_COPIES} 张`);
+        return prev;
+      }
       const cat = getCategory(card.card_type);
       const catKey = cat === "Unit" ? "unit" : cat === "Effect" ? "effect" : "counter";
       const limit = catKey === "unit" ? UNIT_MAX : catKey === "effect" ? EFFECT_MAX : COUNTER_MAX;
-      if (categoryCounts[catKey] >= limit) {
+      const current = prev.filter((id) => cardMap[id] && getCategory(cardMap[id].card_type) === cat).length;
+      if (current >= limit) {
         const catName = cat === "Unit" ? "生物" : cat === "Effect" ? "效果" : "反击";
         toast.error(`${catName}牌已达上限 (${limit})`);
         return prev;
@@ -215,7 +163,6 @@ export default function DeckBuilderPage() {
     });
   };
 
-  // Create deck
   const handleCreateDeck = async () => {
     if (!newDeckName.trim()) {
       toast.error("请输入卡组名称");
@@ -237,7 +184,7 @@ export default function DeckBuilderPage() {
         faction_code: inferFactionCode(selectedCardIds, cardMap),
         cards: Object.entries(counts).map(([card_id, quantity]) => ({ card_id, quantity })),
       };
-      const created = await decksApi.create(req);
+      await decksApi.create(req);
       toast.success("卡组创建成功！");
       setNewDeckName("");
       setSelectedCardIds([]);
@@ -253,39 +200,29 @@ export default function DeckBuilderPage() {
   if (!user) return null;
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-      <div className="space-y-4">
-        {/* Top bar: deck name input + confirm button */}
-        <div className="flex items-center gap-3">
-          <Input
-            placeholder="输入卡组名称..."
-            value={newDeckName}
-            onChange={(e) => setNewDeckName(e.target.value)}
-            className="flex-1 bg-zinc-900 border-zinc-700"
-          />
-          <Button onClick={handleCreateDeck} disabled={creating}>
-            {creating ? "创建中..." : "确认创建"}
-          </Button>
-        </div>
-
-        {/* Drop Zone: selected cards area */}
-        <DeckDropZone
-          selectedCardIds={selectedCardIds}
-          cardMap={cardMap}
-          maxCards={DECK_SIZE}
-          limits={{ unit: UNIT_MAX, effect: EFFECT_MAX, counter: COUNTER_MAX }}
-          counts={categoryCounts}
-          onChange={handleDeckChange}
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Input
+          placeholder="输入卡组名称..."
+          value={newDeckName}
+          onChange={(e) => setNewDeckName(e.target.value)}
+          className="flex-1 bg-zinc-900 border-zinc-700"
         />
+        <Button onClick={handleCreateDeck} disabled={creating}>
+          {creating ? "创建中..." : "确认创建"}
+        </Button>
+      </div>
 
-        {/* Warnings */}
+      <DeckDropZone
+        selectedCardIds={selectedCardIds}
+        cardMap={cardMap}
+        maxCards={DECK_SIZE}
+        limits={{ unit: UNIT_MAX, effect: EFFECT_MAX, counter: COUNTER_MAX }}
+        counts={categoryCounts}
+        onChange={setSelectedCardIds}
+      >
         {warnings.length > 0 && (
-          <div className="flex items-center gap-2 p-2 rounded bg-amber-900/20 border border-amber-900/50">
+          <div className="flex items-center gap-2 p-2 rounded bg-amber-900/20 border border-amber-900/50 mt-3">
             <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
             <div className="flex flex-wrap gap-2 text-sm text-amber-300">
               {warnings.map((w, i) => (
@@ -295,8 +232,7 @@ export default function DeckBuilderPage() {
           </div>
         )}
 
-        {/* Card Library */}
-        <CardComponent>
+        <CardComponent className="mt-4">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -336,19 +272,13 @@ export default function DeckBuilderPage() {
                   className="h-7 w-7 ml-1"
                   onClick={loadCards}
                 >
-                  <RefreshCw
-                    className={cn(
-                      "h-3 w-3",
-                      cardsLoading && "animate-spin"
-                    )}
-                  />
+                  <RefreshCw className={cn("h-3 w-3", cardsLoading && "animate-spin")} />
                 </Button>
               </div>
             </div>
             <CardDescription className="text-xs mt-1">
-              拖拽或点击添加卡牌 · 生物 {categoryCounts.unit}/{UNIT_MAX} ·
-              效果 {categoryCounts.effect}/{EFFECT_MAX} · 反击{" "}
-              {categoryCounts.counter}/{COUNTER_MAX}
+              拖拽或点击添加卡牌（单卡最多 {MAX_COPIES} 张）· 生物 {categoryCounts.unit}/{UNIT_MAX} ·
+              效果 {categoryCounts.effect}/{EFFECT_MAX} · 反击 {categoryCounts.counter}/{COUNTER_MAX}
             </CardDescription>
           </CardHeader>
           <CardContent className="p-3 pt-0 space-y-3">
@@ -381,66 +311,20 @@ export default function DeckBuilderPage() {
 
             {!cardsLoading && !cardsError && cards.length > 0 && (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                {filteredCards.slice(0, 24).map((card) => {
-                  const isSelected = selectedCardIds.includes(card.id);
-                  const cat = getCategory(card.card_type);
-                  return (
-                    <div
-                      key={card.id}
-                      draggable
-                      onDragStart={() => setActiveCard(card)}
-                      onDragEnd={() => setActiveCard(null)}
-                      onClick={() => toggleCard(card.id)}
-                      className={cn(
-                        "relative p-2 rounded-lg border cursor-pointer transition-all select-none",
-                        cat === "Unit"
-                          ? "bg-emerald-950/30"
-                          : cat === "Effect"
-                            ? "bg-blue-950/30"
-                            : "bg-amber-950/30",
-                        isSelected
-                          ? "border-emerald-500 ring-1 ring-emerald-500/50"
-                          : "border-zinc-700 bg-zinc-800/40 hover:border-zinc-500"
-                      )}
-                      data-dnd-draggable-id={card.id}
-                    >
-                      <p className="text-xs font-medium text-zinc-200 truncate">
-                        {card.name}
-                      </p>
-                      <p className="text-[10px] text-zinc-500">
-                        {cat === "Unit" ? "🐾" : cat === "Effect" ? "✨" : "🛡️"}{" "}
-                        {card.faction_code} · 💰{card.cost}
-                      </p>
-                      {isSelected && (
-                        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
-                          <span className="text-white text-[8px]">✓</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {filteredCards.length > 24 && (
-                  <p className="text-xs text-zinc-500 flex items-center justify-center">
-                    还有 {filteredCards.length - 24} 张...
-                  </p>
-                )}
+                {filteredCards.map((card) => (
+                  <DeckLibraryCard
+                    key={card.id}
+                    card={card}
+                    isSelected={(copyCounts[card.id] ?? 0) > 0}
+                    copyCount={copyCounts[card.id] ?? 0}
+                    onClick={() => toggleCard(card.id)}
+                  />
+                ))}
               </div>
             )}
           </CardContent>
         </CardComponent>
-      </div>
-
-      {/* Drag overlay */}
-      <DragOverlay>
-        {activeCard ? (
-          <div className="w-20 p-2 rounded-lg border border-zinc-500 bg-zinc-800 shadow-xl opacity-90">
-            <p className="text-xs font-medium text-zinc-200 truncate">
-              {activeCard.name}
-            </p>
-            <p className="text-[10px] text-zinc-400">💰{activeCard.cost}</p>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+      </DeckDropZone>
+    </div>
   );
 }

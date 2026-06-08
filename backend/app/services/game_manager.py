@@ -22,6 +22,7 @@ from app.core.game_protocol import (
     player_key,
 )
 from app.models import Card, Deck, DeckCard, Match, User
+from app.services.battle_rewards import apply_battle_rewards
 from app.services.elo import calculate_elo_changes
 from app.services.game_state_store import (
     delete_room,
@@ -389,6 +390,14 @@ class GameManager:
             elo_changes=room.elo_changes,
         )
 
+        rewards = {"ink": 0, "packs": []}
+        if winner:
+            winner_faction = room.p1_faction if winner_id == room.p1_id else room.p2_faction
+            rewards = await apply_battle_rewards(
+                winner, db, faction_code=winner_faction
+            )
+            battle_report["rewards"] = rewards
+
         match_row = await db.get(Match, uuid.UUID(room.match_id))
         if match_row:
             match_row.winner_id = uuid.UUID(winner_id)
@@ -409,12 +418,18 @@ class GameManager:
         await matchmaking.clear_active_match(room.p2_id)
         await db.commit()
 
+        event_log = battle_report.get("event_log") or []
         payload = {
             "winner_id": winner_id,
             "elo_change": room.elo_changes,
             "reason": reason,
             "mode": room.mode,
             "battle_report_id": room.match_id,
+            "rewards": rewards,
+            "battle_summary": battle_report.get("summary"),
+            "turns_played": battle_report.get("turns_played"),
+            "players": battle_report.get("players"),
+            "event_log": event_log[-20:],
         }
         await self._broadcast(room, "game_over", payload)
         return payload

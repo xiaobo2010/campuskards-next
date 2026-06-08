@@ -1,4 +1,18 @@
 import { API_BASE } from "./config";
+import { isDemoSessionActive, makeDemoTokens } from "./demo-mode";
+import { resolveDemoMock } from "./demo-mock-api";
+
+// Re-export demo helpers for auth UI
+export {
+  DEMO_MODE_ENABLED,
+  DEMO_USERNAME,
+  DEMO_PASSWORD,
+  DEMO_USER,
+  isDemoCreds,
+  makeDemoTokens,
+  isDemoToken,
+  isDemoSessionActive,
+} from "./demo-mode";
 import type {
   User,
   Card,
@@ -25,7 +39,12 @@ import type {
   MatchStats,
   MatchHistoryItem,
   MatchDetail,
+  PackDefinition,
+  PackOpenCard,
+  PackOpenResult,
 } from "@/types";
+
+export type { PackDefinition, PackOpenCard, PackOpenResult };
 
 // ---------- Error ----------
 import { ApiError } from "./api-error";
@@ -78,6 +97,11 @@ let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefreshToken(): Promise<boolean> {
+  if (isDemoSessionActive()) {
+    const tokens = makeDemoTokens();
+    setTokens(tokens.access_token, tokens.refresh_token);
+    return true;
+  }
   if (isRefreshing && refreshPromise) return refreshPromise;
   isRefreshing = true;
   refreshPromise = (async () => {
@@ -120,6 +144,19 @@ async function tryRefreshToken(): Promise<boolean> {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  // Demo session: return mock data without hitting backend
+  if (isDemoSessionActive()) {
+    if (path === "/api/auth/logout" && (options?.method ?? "GET").toUpperCase() === "POST") {
+      clearTokens();
+      return undefined as T;
+    }
+    if (path === "/api/auth/refresh" && (options?.method ?? "GET").toUpperCase() === "POST") {
+      return makeDemoTokens() as T;
+    }
+    const mock = resolveDemoMock<T>(path, options);
+    if (mock !== null) return mock;
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options?.headers as Record<string, string> | undefined),
@@ -501,37 +538,6 @@ export const collectionApi = {
 };
 
 // ---------- Shop API ----------
-
-export interface PackDefinition {
-  id: string;
-  name: string;
-  description: string;
-  price_ink: number;
-  cards_count: number;
-  cost_type?: string;
-  price_elo?: number;
-  min_elo?: number;
-}
-
-export interface PackOpenCard {
-  card_id: string;
-  name?: string;
-  rarity?: string;
-  faction_code?: string;
-  is_new?: boolean;
-  slot_index?: number;
-}
-
-export interface PackOpenResult {
-  pack_id?: string;
-  cards: PackOpenCard[];
-  new?: string[];
-  fragments?: Record<string, number>;
-  remaining_ink?: number;
-  remaining_elo?: number;
-  can_reroll?: boolean;
-  reroll_token?: string | null;
-}
 
 export const shopApi = {
   listPacks(): Promise<PackDefinition[]> {
