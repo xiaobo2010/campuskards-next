@@ -19,6 +19,7 @@ import type {
   CardUpdateIn,
   UserCardOwnership,
   UpgradeResult,
+  ConvertResult,
   MatchQueueResponse,
   PveMatchResponse,
   MatchQueueStatus,
@@ -323,7 +324,7 @@ export const cardsApi = {
 
 // ---------- User API ----------
 
-async function apiFetchFormData<T>(path: string, file: File, fieldName = "file"): Promise<T> {
+async function apiFetchFormData<T>(path: string, file: File, fieldName = "file", isRetry = false): Promise<T> {
   const formData = new FormData();
   formData.append(fieldName, file);
 
@@ -339,13 +340,10 @@ async function apiFetchFormData<T>(path: string, file: File, fieldName = "file")
     body: formData,
   });
 
-  if (res.status === 401 && !headers["X-Retry"]) {
+  if (res.status === 401 && !isRetry) {
     const refreshed = await tryRefreshToken();
     if (refreshed) {
-      const newAt = getToken(ACCESS_KEY);
-      if (newAt) headers["Authorization"] = `Bearer ${newAt}`;
-      headers["X-Retry"] = "1";
-      return apiFetchFormData<T>(path, file, fieldName);
+      return apiFetchFormData<T>(path, file, fieldName, true);
     }
     clearTokens();
   }
@@ -546,6 +544,19 @@ export const adminApi = {
 export const collectionApi = {
   list(): Promise<UserCardOwnership[]> {
     return apiFetch<UserCardOwnership[]>("/api/collection");
+  },
+
+  upgrade(cardId: string): Promise<UpgradeResult> {
+    return apiFetch<UpgradeResult>(`/api/collection/${cardId}/upgrade`, {
+      method: "POST",
+    });
+  },
+
+  convertToFragments(cardId: string, count: number): Promise<ConvertResult> {
+    return apiFetch<ConvertResult>(`/api/collection/${cardId}/convert`, {
+      method: "POST",
+      body: JSON.stringify({ count }),
+    });
   },
 };
 

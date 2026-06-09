@@ -170,7 +170,7 @@ export default function GameLobbyPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.5 }}
         >
-          <AnnouncementBoard refreshTrigger={refreshTrigger} />
+          <AnnouncementBoard autoFetch refreshTrigger={refreshTrigger} />
         </motion.div>
 
       </div>

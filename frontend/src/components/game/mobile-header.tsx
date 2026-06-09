@@ -41,6 +41,7 @@ export default function MobileHeader() {
     { href: "/game/shop", icon: ShoppingBag, label: "商店" },
     { href: "/game/leaderboard", icon: Trophy, label: "排名" },
     { href: "/game/history", icon: History, label: "战绩" },
+    { href: "/game/settings", icon: Settings2, label: "设置" },
     ...(user?.role === "admin"
       ? [{ href: "/game/admin", icon: Settings2, label: "管理游戏" }]
       : []),

@@ -1,4 +1,3 @@
-import random
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -16,7 +15,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import Card, User, UserCard
+from app.models import User
 from app.schemas.admin import SetCookieRequest
 from app.schemas.auth import (
     LoginRequest,
@@ -98,18 +97,6 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
         ink=500,
     )
     db.add(user)
-    await db.flush()
-
-    # Grant newbie pack: 30 random starter cards
-    result = await db.execute(select(Card))
-    all_cards = list(result.scalars().all())
-    pool = [c for c in all_cards if not c.is_token and c.rarity in ("common", "uncommon")]
-    if len(pool) < 30:
-        pool = [c for c in all_cards if not c.is_token]
-    starter_cards = random.sample(pool, min(30, len(pool)))
-    for card in starter_cards:
-        db.add(UserCard(user_id=user.id, card_id=card.id, count=1, level=1, fragments=0))
-
     await db.commit()
     await db.refresh(user)
 

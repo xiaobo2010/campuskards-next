@@ -195,6 +195,14 @@ export interface UpgradeResult {
   ink_remaining: number;
 }
 
+export interface ConvertResult {
+  card_id: string;
+  converted: number;
+  fragments_gained: number;
+  fragments_total: number;
+  count_remaining: number;
+}
+
 // ---------- Match / Game ----------
 
 export interface OpponentInfo {
@@ -435,6 +443,7 @@ export interface PackDefinition {
   cost_type?: string;
   price_elo?: number;
   min_elo?: number;
+  one_time?: boolean;
 }
 
 export interface PackOpenCard {

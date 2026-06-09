@@ -555,6 +555,7 @@ export default function ShopPage() {
           packName={animation.packName}
           packId={animation.packId}
           selectorMode={selectorMode}
+          batchSize={animation.packId === "newbie" ? 5 : 1}
           onClose={() => {
             setAnimation(null);
             if (!selectorMode) {

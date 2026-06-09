@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Dialog,
@@ -8,8 +8,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog as ConfirmDialog,
+  DialogContent as ConfirmDialogContent,
+  DialogHeader as ConfirmDialogHeader,
+  DialogTitle as ConfirmDialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import type { Card as CardType, UserCardOwnership, UpgradeResult } from "@/types";
 import CardUpgradePanel from "./card-upgrade-panel";
+import { FACTION_LABEL } from "@/lib/faction-labels";
+import { collectionApi } from "@/lib/api";
+import { getRandomTips } from "@/lib/combat-tips";
+import { toast } from "sonner";
 
 interface CardDetailModalProps {
   card: CardType | null;
@@ -36,23 +49,26 @@ const RARITY_LABELS: Record<string, string> = {
 };
 
 const FACTION_COLORS: Record<string, string> = {
-  elite: "text-indigo-400",
-  arts: "text-amber-400",
-  mass: "text-red-400",
-  global: "text-emerald-400",
-  rush: "text-violet-400",
-};
-
-const FACTION_LABELS: Record<string, string> = {
-  elite: "精英",
-  arts: "艺术",
-  mass: "大众",
-  global: "全球",
-  rush: "速攻",
+  key_class: "text-indigo-400",
+  arts_class: "text-amber-400",
+  normal_class: "text-red-400",
+  intl_class: "text-emerald-400",
+  competition_class: "text-violet-400",
+  neutral: "text-zinc-400",
 };
 
 export function CardDetailModal({ card, ownership, open, onOpenChange, onUpgradeSuccess }: CardDetailModalProps) {
   const [activeTab, setActiveTab] = useState<"detail" | "upgrade">("detail");
+  const [showConvertDialog, setShowConvertDialog] = useState(false);
+  const [convertCount, setConvertCount] = useState(1);
+  const [converting, setConverting] = useState(false);
+  const [tips, setTips] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (card && open) {
+      setTips(getRandomTips(card.unit_type, card.card_type, 2));
+    }
+  }, [card, open]);
 
   if (!card) return null;
 
@@ -61,11 +77,32 @@ export function CardDetailModal({ card, ownership, open, onOpenChange, onUpgrade
   const borderColor = RARITY_COLORS[rarity] || "border-zinc-500";
   const rarityLabel = RARITY_LABELS[rarity] || rarity;
   const factionColor = FACTION_COLORS[factionCode] || "text-zinc-400";
-  const factionLabel = FACTION_LABELS[factionCode] || factionCode;
+  const factionLabel = FACTION_LABEL[factionCode] || factionCode;
+  const ownedCount = (ownership?.count ?? 0) - 1; // Extra copies beyond the first
 
   const handleUpgradeSuccess = (result: UpgradeResult) => {
-    setActiveTab("detail"); // Switch back to detail tab
+    setActiveTab("detail");
     onUpgradeSuccess?.(result);
+  };
+
+  const handleConvert = async () => {
+    if (!card || convertCount < 1) return;
+    setConverting(true);
+    try {
+      await collectionApi.convertToFragments(card.id, convertCount);
+      toast.success("转化成功", {
+        description: `消耗 ${convertCount} 张重复卡牌，获得碎片`,
+      });
+      setShowConvertDialog(false);
+      setConvertCount(1);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error("转化失败", {
+        description: err instanceof Error ? err.message : "请重试",
+      });
+    } finally {
+      setConverting(false);
+    }
   };
 
   return (
@@ -164,15 +201,15 @@ export function CardDetailModal({ card, ownership, open, onOpenChange, onUpgrade
                   <div className="text-xs text-zinc-500 mb-1">战力</div>
                   <div className="text-lg font-bold text-red-400">
                     {ownership?.level && ownership.level > 1
-                      ? card.power! + (ownership.level - 1) * (card.unit_type === "TANK" ? 0 : 1)
-                      : card.power}
+                      ? (card.power ?? 0) + (ownership.level - 1) * (card.unit_type === "TANK" ? 0 : 1)
+                      : card.power ?? 0}
                   </div>
                 </div>
                 <div className="bg-zinc-900/50 rounded-lg p-2 border border-zinc-800 text-center">
                   <div className="text-xs text-zinc-500 mb-1">坚韧</div>
                   <div className="text-lg font-bold text-green-400">
                     {ownership?.level && ownership.level > 1
-                      ? card.grit! + (ownership.level - 1) * (card.unit_type === "TANK" ? 1 : 0)
+                      ? (card.grit ?? 0) + (ownership.level - 1) * (card.unit_type === "TANK" ? 1 : 0)
                       : card.grit ?? 0}
                   </div>
                 </div>
@@ -180,7 +217,7 @@ export function CardDetailModal({ card, ownership, open, onOpenChange, onUpgrade
                   <div className="text-xs text-zinc-500 mb-1">精神</div>
                   <div className="text-lg font-bold text-purple-400">
                     {ownership?.level && ownership.level > 1
-                      ? card.spirit! + (ownership.level - 1) * (card.unit_type === "TANK" ? 2 : ["INFANTRY","FIGHTER"].includes(card.unit_type || "") ? 1 : 0)
+                      ? (card.spirit ?? 0) + (ownership.level - 1) * (card.unit_type === "TANK" ? 2 : ["INFANTRY","FIGHTER"].includes(card.unit_type || "") ? 1 : 0)
                       : card.spirit ?? 0}
                   </div>
                 </div>
@@ -205,19 +242,89 @@ export function CardDetailModal({ card, ownership, open, onOpenChange, onUpgrade
                 </div>
               )}
 
-              {/* Combat Tips Placeholder */}
+              {/* Combat Tips */}
               <div className="bg-zinc-900/50 rounded-lg p-4 border border-zinc-800 min-h-[80px]">
                 <h4 className="text-sm font-semibold text-zinc-300 mb-2">💡 战斗技巧</h4>
-                <div id="combat-tips" className="text-sm text-zinc-400">
-                  {/* Worker will populate this */}
-                  <span className="italic">战术分析加载中...</span>
-                </div>
+                {tips.length > 0 ? (
+                  <ul className="space-y-2">
+                    {tips.map((tip, i) => (
+                      <li key={i} className="text-sm text-zinc-400 leading-relaxed flex gap-2">
+                        <span className="text-zinc-600 shrink-0 mt-0.5">•</span>
+                        <span>{tip}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-sm text-zinc-500 italic">暂无针对该卡牌的战术分析</div>
+                )}
               </div>
+
+              {/* Convert duplicates to fragments */}
+              {ownedCount > 0 && (
+                <button
+                  onClick={() => { setConvertCount(1); setShowConvertDialog(true); }}
+                  className="w-full py-2 px-4 rounded-lg bg-purple-900/40 border border-purple-700/50 text-purple-200 text-sm font-medium hover:bg-purple-900/60 transition-colors"
+                >
+                  转化为碎片（多余 {ownedCount} 张）
+                </button>
+              )}
             </div>
           </div>
         ) : (
           ownership && <CardUpgradePanel card={card} ownership={ownership} onUpgradeSuccess={handleUpgradeSuccess} />
         )}
+
+        {/* Convert Confirm Dialog */}
+        <ConfirmDialog open={showConvertDialog} onOpenChange={setShowConvertDialog}>
+          <ConfirmDialogContent className="max-w-sm">
+            <ConfirmDialogHeader>
+              <ConfirmDialogTitle>转化为碎片</ConfirmDialogTitle>
+              <DialogDescription>
+                将多余的卡牌转化为碎片，用于升级卡牌。至少保留 1 张卡牌。
+              </DialogDescription>
+            </ConfirmDialogHeader>
+            <div className="py-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-400">当前持有</span>
+                <span className="font-bold">{ownership?.count ?? 0} 张</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-400">转化数量</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setConvertCount(Math.max(1, convertCount - 1))}
+                    className="w-8 h-8 rounded bg-zinc-800 hover:bg-zinc-700 text-white"
+                  >
+                    -
+                  </button>
+                  <span className="w-8 text-center font-bold">{convertCount}</span>
+                  <button
+                    onClick={() => setConvertCount(Math.min(ownedCount, convertCount + 1))}
+                    className="w-8 h-8 rounded bg-zinc-800 hover:bg-zinc-700 text-white"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center justify-between text-sm text-zinc-400">
+                <span>转化后剩余</span>
+                <span>{(ownership?.count ?? 0) - convertCount} 张</span>
+              </div>
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="ghost" onClick={() => setShowConvertDialog(false)} disabled={converting}>
+                取消
+              </Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-500"
+                onClick={handleConvert}
+                disabled={converting}
+              >
+                {converting ? "转化中..." : "确认转化"}
+              </Button>
+            </DialogFooter>
+          </ConfirmDialogContent>
+        </ConfirmDialog>
       </DialogContent>
     </Dialog>
   );

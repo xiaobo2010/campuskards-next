@@ -13,8 +13,14 @@ from app.api.cards import upgrade_card as cards_upgrade_card
 
 router = APIRouter(prefix="/api/collection", tags=["collection"])
 
+FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 8}
+
 
 class AddCollectionRequest(BaseModel):
+    count: int = 1
+
+
+class ConvertRequest(BaseModel):
     count: int = 1
 
 
@@ -95,3 +101,43 @@ async def upgrade_collection_card(
     db: AsyncSession = Depends(get_db),
 ):
     return await cards_upgrade_card(card_id, db, user)
+
+
+@router.post("/{card_id}/convert")
+async def convert_to_fragments(
+    card_id: str,
+    body: ConvertRequest,
+    user: User = Depends(_get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.count < 1:
+        raise HTTPException(status_code=400, detail="数量必须大于 0")
+
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(status_code=404, detail="卡牌不存在")
+
+    result = await db.execute(
+        select(UserCard).where(UserCard.user_id == user.id, UserCard.card_id == card_id)
+    )
+    uc = result.scalar_one_or_none()
+    if not uc:
+        raise HTTPException(status_code=404, detail="收藏中无此卡牌")
+    if uc.count <= body.count:
+        raise HTTPException(status_code=400, detail="至少保留 1 张卡牌")
+
+    rarity = card.rarity or "common"
+    frag_value = FRAGMENT_VALUES.get(rarity, 1)
+    total_fragments = frag_value * body.count
+
+    uc.count -= body.count
+    uc.fragments = (uc.fragments or 0) + total_fragments
+    await db.commit()
+
+    return {
+        "card_id": card_id,
+        "converted": body.count,
+        "fragments_gained": total_fragments,
+        "fragments_total": uc.fragments,
+        "count_remaining": uc.count,
+    }

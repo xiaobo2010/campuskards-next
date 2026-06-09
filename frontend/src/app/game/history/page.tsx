@@ -131,14 +131,14 @@ export default function MatchHistoryPage() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadStats(), loadHistory()]);
+      await loadStats();
       setLoading(false);
     })();
-  }, [loadStats, loadHistory]);
+  }, [loadStats]);
 
   useEffect(() => {
-    if (!loading) loadHistory();
-  }, [page, filter, loading, loadHistory]);
+    loadHistory();
+  }, [page, filter, loadHistory]);
 
   const totalPages = Math.max(1, Math.ceil(total / 15));
   const winRatePct = stats ? Math.round(stats.win_rate * 100) : 0;

@@ -370,10 +370,11 @@ class GameManager:
         await claim_room_owner(match_id)
         return room
 
-    async def disconnect(self, match_id: str, user_id: str) -> None:
+    async def disconnect(self, match_id: str, user_id: str, ws=None) -> None:
         room = await self.get_room(match_id)
         if room:
-            room.connections.pop(user_id, None)
+            if ws is None or room.connections.get(user_id) is ws:
+                room.connections.pop(user_id, None)
             await unregister_presence(match_id, user_id)
 
     async def handle_join(self, room: GameRoom, user_id: str) -> None:
@@ -572,12 +573,18 @@ class GameManager:
                 raise GameError("Not your turn")
             if room.game.phase != Phase.COMBAT:
                 room.game.begin_combat_phase()
+                await self._broadcast(room, "combat_phase", {
+                    "player": player_key(player),
+                })
 
             destroyed: list[str] = []
             for attacker_id in attacker_ids:
                 before_opp = room.game.battlefield.opponent_side(player).all_units[:]
+                before_opp_hp = room.game.battlefield.opponent_side(player).spirit_total
                 room.game.attack(attacker_id, target_id)
                 after_opp = room.game.battlefield.opponent_side(player).all_units
+                after_opp_hp = room.game.battlefield.opponent_side(player).spirit_total
+                damage = max(0, before_opp_hp - after_opp_hp)
                 for u in before_opp:
                     if u not in after_opp and not u.alive:
                         destroyed.append(u.uid)
@@ -585,7 +592,7 @@ class GameManager:
                 await self._broadcast(room, "attack_result", {
                     "attacker_id": attacker_id,
                     "target_id": target_id,
-                    "damage": 0,
+                    "damage": damage,
                     "destroyed": destroyed,
                 })
 
@@ -711,13 +718,14 @@ class GameManager:
         room._timer_generation += 1
         room.turn_deadline = None
 
+        await db.commit()
+
         async with self._lock:
             self._rooms.pop(room.match_id, None)
 
         await delete_room(room.match_id)
         await matchmaking.clear_active_match(room.p1_id)
         await matchmaking.clear_active_match(room.p2_id)
-        await db.commit()
 
         event_log = battle_report.get("event_log") or []
         payload = {
@@ -769,19 +777,22 @@ class GameManager:
                 if finalize:
                     return
             except GameError:
+                need_end_turn = False
                 async with room.lock:
                     if room.game.phase.value == "COMBAT":
-                        try:
-                            await self.handle_end_turn(room, bot_id)
-                        except GameError:
-                            pass
+                        need_end_turn = True
                     elif room.game.phase.value == "MAIN":
                         try:
                             room.game.begin_combat_phase()
                             await self._broadcast_states(room)
                             await self._persist_room(room)
                         except GameError:
-                            await self.handle_end_turn(room, bot_id)
+                            need_end_turn = True
+                if need_end_turn:
+                    try:
+                        await self.handle_end_turn(room, bot_id)
+                    except GameError:
+                        pass
                 return
             await asyncio.sleep(0.25)
 
@@ -857,8 +868,11 @@ class GameManager:
         await publish_match_event(room.match_id, event, payload)
 
     async def _broadcast_local(self, room: GameRoom, event: str, payload: dict) -> None:
-        for ws in list(room.connections.values()):
-            await self._send_ws(ws, event, payload)
+        for uid, ws in list(room.connections.items()):
+            try:
+                await self._send_ws(ws, event, payload)
+            except Exception:
+                room.connections.pop(uid, None)
 
     async def _send(self, room: GameRoom, user_id: str, event: str, payload: dict) -> None:
         ws = room.connections.get(user_id)

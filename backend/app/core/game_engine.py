@@ -6,11 +6,10 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .battlefield import Battlefield, BattlefieldSide, MAX_FRONT_LINE, MAX_SUPPORT_LINE, check_corridor_control
+from .battlefield import MAX_FRONT_LINE, MAX_SUPPORT_LINE, Battlefield, BattlefieldSide, check_corridor_control
 from .card_keywords import infer_unit_type, is_advisor_card, parse_keywords
 from .combat import CombatResult, compute_overflow, resolve_attack
 from .combat_rules import can_attack_target
-from .effect_engine import execute_active_ability, execute_on_deploy, execute_spell
 from .effect_choices import (
     PendingResolution,
     branch_needs_target,
@@ -20,6 +19,7 @@ from .effect_choices import (
     pending_resolution_public,
     resolve_branch,
 )
+from .effect_engine import execute_active_ability, execute_on_deploy, execute_spell
 from .faction_passives import (
     apply_faction_stat_passives,
     apply_turn_start_passives,
@@ -286,7 +286,8 @@ class GameState:
         side = self.battlefield.side_for(self.current_player)
         apply_all_synergies(self)
         for unit in side.all_units:
-            unit.can_attack = True
+            if not unit.summoned_this_turn and unit.cannot_attack_turns <= 0:
+                unit.can_attack = True
             unit.has_attacked = False
         self._log(self.current_player, "combat_phase", "entered combat")
 
@@ -361,7 +362,6 @@ class GameState:
                 raise GameError(f"Card {uid} not in hand")
             side.hand.remove(card)
             side.graveyard.append(card)
-        side.graveyard.append(card)
         self.pending_resolution = None
         self._log(pr.player, "discard", f"discarded {len(card_uids)}")
         if pr.card and pr.card not in side.graveyard and pr.card not in side.hand:

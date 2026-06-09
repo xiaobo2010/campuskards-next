@@ -28,7 +28,7 @@ export function useCachedBackground() {
 
       try {
         const response = await fetch(`${API_BASE}/api/login-bg`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("campuskards_token")}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem("access_token")}` },
         });
         if (response.ok) {
           const data = await response.json();

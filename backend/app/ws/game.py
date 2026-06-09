@@ -141,4 +141,4 @@ async def game_websocket(
     except Exception as exc:
         logger.exception("WS %s: unhandled error: %s", match_id, exc)
     finally:
-        await game_manager.disconnect(match_id, user_id)
+        await game_manager.disconnect(match_id, user_id, ws=websocket)

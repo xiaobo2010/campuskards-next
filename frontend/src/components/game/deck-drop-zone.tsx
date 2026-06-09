@@ -54,8 +54,8 @@ const LIB_PREFIX = "lib-";
 
 function getCardTypeCategory(cardType: string): "unit" | "effect" | "counter" {
   const t = cardType.toLowerCase();
-  if (t === "counter") return "counter";
-  if (t === "command" || t === "buff" || t === "effect" || t === "spell") return "effect";
+  if (t === "counter" || t === "snitch") return "counter";
+  if (t === "command" || t === "buff" || t === "effect" || t === "spell" || t === "event") return "effect";
   return "unit";
 }
 

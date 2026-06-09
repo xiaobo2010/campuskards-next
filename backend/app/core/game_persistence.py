@@ -211,16 +211,18 @@ def deserialize_game(data: dict[str, Any]) -> GameState:
     game.hand_size = data.get("hand_size", 5)
     game.game_over = data.get("game_over", False)
     game.winner = data.get("winner")
-    game.starting_hp = data.get("starting_hp", {1: 30, 2: 30})
-    game.attacks_this_turn = data.get("attacks_this_turn", {1: 0, 2: 0})
-    game.commands_played_this_turn = data.get("commands_played_this_turn", {1: 0, 2: 0})
-    game.commands_played_before_current = data.get(
-        "commands_played_before_current", {1: 0, 2: 0}
-    )
-    game.cost_reduction_next = data.get("cost_reduction_next", {1: 0, 2: 0})
+    game.starting_hp = {int(k): v for k, v in data.get("starting_hp", {1: 30, 2: 30}).items()}
+    game.attacks_this_turn = {int(k): v for k, v in data.get("attacks_this_turn", {1: 0, 2: 0}).items()}
+    game.commands_played_this_turn = {int(k): v for k, v in data.get("commands_played_this_turn", {1: 0, 2: 0}).items()}
+    game.commands_played_before_current = {
+        int(k): v for k, v in data.get("commands_played_before_current", {1: 0, 2: 0}).items()
+    }
+    game.cost_reduction_next = {int(k): v for k, v in data.get("cost_reduction_next", {1: 0, 2: 0}).items()}
     game.corridor_controller = data.get("corridor_controller")
-    game.arts_command_discount_used = data.get("arts_command_discount_used", {1: False, 2: False})
-    game.cards_played_this_turn = data.get("cards_played_this_turn", {1: 0, 2: 0})
+    game.arts_command_discount_used = {
+        int(k): v for k, v in data.get("arts_command_discount_used", {1: False, 2: False}).items()
+    }
+    game.cards_played_this_turn = {int(k): v for k, v in data.get("cards_played_this_turn", {1: 0, 2: 0}).items()}
     game.reactive_counters = data.get("reactive_counters", {})
     pending_data = data.get("pending_resolution")
     game.pending_resolution = (

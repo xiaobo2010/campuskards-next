@@ -184,6 +184,7 @@ export class GameWsClient {
         this.handlers.onCombatPhase?.(payload as { player: string });
         break;
       case "game_over":
+        this.closed = true;
         this.handlers.onGameOver?.(payload as GameOverPayload);
         break;
       case "error": {

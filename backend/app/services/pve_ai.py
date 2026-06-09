@@ -170,7 +170,7 @@ def _should_save_for_synergy(card, side) -> bool:
     same_faction = [u for u in side.all_units if u.faction == card.faction]
     if len(same_faction) >= 2:
         return False
-    return False
+    return True
 
 
 def _unit_score(card, side) -> int:

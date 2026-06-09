@@ -31,8 +31,8 @@ type TypeFilter = "all" | "Unit" | "Effect" | "Counter";
 
 function getCategory(cardType: string): "Unit" | "Effect" | "Counter" {
   const t = cardType.toLowerCase();
-  if (t === "counter") return "Counter";
-  if (t === "command" || t === "buff" || t === "effect" || t === "spell") return "Effect";
+  if (t === "counter" || t === "snitch") return "Counter";
+  if (t === "command" || t === "buff" || t === "effect" || t === "spell" || t === "event") return "Effect";
   return "Unit";
 }
 

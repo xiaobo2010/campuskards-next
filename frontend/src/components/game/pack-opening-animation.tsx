@@ -138,6 +138,7 @@ interface PackOpeningAnimationProps {
   packId?: string;
   onClose: () => void;
   selectorMode?: SelectorModeProps;
+  batchSize?: number;
 }
 
 function PackBox({
@@ -145,12 +146,15 @@ function PackBox({
   remaining,
   pulse,
   theme,
+  batchSize = 1,
 }: {
   packName: string;
   remaining: number;
   pulse?: boolean;
   theme: PackVisualTheme;
+  batchSize?: number;
 }) {
+  const label = batchSize > 1 ? `剩余 ${remaining} 组` : remaining > 0 ? `${remaining} 张` : "";
   return (
     <motion.div
       className="relative flex flex-col items-center gap-3"
@@ -182,7 +186,7 @@ function PackBox({
           <span className="text-xs font-semibold relative z-10" style={{ color: theme.accentColor }}>
             {theme.subtitle}卡包
           </span>
-          {remaining > 0 && (
+          {label && (
             <div
               className="absolute -top-2 -right-2 min-w-[2rem] h-8 px-2 rounded-full border-2 flex items-center justify-center text-white text-sm font-bold shadow-lg z-20"
               style={{
@@ -190,7 +194,7 @@ function PackBox({
                 borderColor: theme.accentColor,
               }}
             >
-              {remaining}
+              {label}
             </div>
           )}
         </div>
@@ -341,6 +345,7 @@ export function PackOpeningAnimation({
   packId,
   onClose,
   selectorMode,
+  batchSize = 1,
 }: PackOpeningAnimationProps) {
   const theme = resolveTheme(packId);
   const [phase, setPhase] = useState<Phase>("sealed");
@@ -354,7 +359,9 @@ export function PackOpeningAnimation({
   const finishScheduled = useRef(false);
 
   const total = displayCards.length;
-  const remainingInPack = total - revealedCount;
+  const groups = Math.ceil(total / batchSize);
+  const currentGroup = Math.ceil(revealedCount / batchSize);
+  const remainingInPack = groups - currentGroup;
   const isDrawing = phase === "drawing";
   const allRevealed = revealedCount >= total;
 
@@ -368,9 +375,9 @@ export function PackOpeningAnimation({
     if (phase !== "drawing" || isFlying || allRevealed) return;
     setPackPulse(true);
     setIsFlying(true);
-    setRevealedCount((count: number) => count + 1);
+    setRevealedCount((count: number) => Math.min(count + batchSize, total));
     setTimeout(() => setPackPulse(false), 350);
-  }, [phase, isFlying, allRevealed]);
+  }, [phase, isFlying, allRevealed, batchSize, total]);
 
   const startDrawing = useCallback(() => {
     if (phase === "sealed") {
@@ -475,6 +482,9 @@ export function PackOpeningAnimation({
     if (phase === "drawing") {
       if (isFlying) return "卡牌飞出中…";
       if (allRevealed) return "开包完成";
+      if (batchSize > 1) {
+        return `剩余 ${remainingInPack} 组 · 点击或按任意键继续`;
+      }
       return `卡包剩余 ${remainingInPack} 张 · 点击或按任意键继续`;
     }
     if (phase === "selecting") return "选择一张卡牌重抽，或点「放弃」保留全部";
@@ -520,7 +530,7 @@ export function PackOpeningAnimation({
               exit={{ opacity: 0 }}
             >
               <h2 className="text-2xl font-bold text-white">{packName}</h2>
-              <PackBox packName={packName} remaining={total} theme={theme} />
+              <PackBox packName={packName} remaining={groups} theme={theme} batchSize={batchSize} />
             </motion.div>
           )}
 
@@ -551,6 +561,7 @@ export function PackOpeningAnimation({
                       remaining={phase === "drawing" ? remainingInPack : 0}
                       pulse={packPulse}
                       theme={theme}
+                      batchSize={batchSize}
                     />
                   </div>
                 )}

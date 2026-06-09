@@ -371,16 +371,22 @@ export default function CollectionPage() {
                         </div>
                         {/* Level badge */}
                         {ownership?.level && ownership.level > 1 && (
-                          <div className="absolute top-1 right-1 bg-gradient-to-r from-yellow-600 to-orange-600 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-lg z-10">
+                          <div className="absolute top-1 left-1 bg-gradient-to-r from-yellow-600 to-orange-600 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-lg z-10">
                             Lv{ownership.level}
                           </div>
                         )}
                         {/* Fragments indicator */}
                         {ownership?.fragments && ownership.fragments > 0 && (
-                          <div className="absolute bottom-1 left-1 right-1 text-center z-10">
+                          <div className="absolute bottom-11 left-1 right-1 text-center z-10">
                             <span className="text-[9px] bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded">
                               🔷{ownership.fragments}
                             </span>
+                          </div>
+                        )}
+                        {/* Count badge for duplicates */}
+                        {(ownership?.count ?? 0) > 1 && (
+                          <div className="absolute top-1 right-1 bg-blue-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 shadow-lg">
+                            ×{ownership!.count}
                           </div>
                         )}
                       </CardPlaceholder>

@@ -20,10 +20,11 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     elo: Mapped[int] = mapped_column(default=1000)
     ink: Mapped[int] = mapped_column(default=500)
-    role: Mapped[str] = mapped_column(String(10), default="player")  # player|admin
+    role: Mapped[str] = mapped_column(String(10), default="player", index=True)  # player|admin
     is_active: Mapped[bool] = mapped_column(default=True)
     reset_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True, default=None)
+    newbie_claimed: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     decks: Mapped[list["Deck"]] = relationship(back_populates="user")

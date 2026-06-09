@@ -70,7 +70,7 @@ class PackDef:
     description: str
     price_ink: int
     cards_count: int
-    cost_type: str = "ink"  # ink | elo
+    cost_type: str = "ink"
     price_elo: int = 0
     min_elo: int = 0
     rolls: list[RarityRoll] | None = None
@@ -79,13 +79,7 @@ class PackDef:
     min_rarity: str | None = None
     prestige_epic_prob: float = 0.0
     prestige_legendary_prob: float = 0.0
-
-
-def _draw_newbie_pack(all_cards: list[Card]) -> list[Card]:
-    pool = [c for c in all_cards if not c.is_token and c.rarity in ("common", "uncommon")]
-    if len(pool) < 30:
-        pool = [c for c in all_cards if not c.is_token]
-    return random.sample(pool, min(30, len(pool)))
+    one_time: bool = False
 
 
 PACKS: dict[str, PackDef] = {
@@ -96,6 +90,7 @@ PACKS: dict[str, PackDef] = {
         price_ink=0,
         cards_count=30,
         rolls=[],
+        one_time=True,
     ),
     "basic": PackDef(
         id="basic",
@@ -306,15 +301,12 @@ async def _build_pack_response(
 
     drawn_items: list[PackCardItem] = []
     new_ids: list[str] = []
-    fragment_drops: dict[str, int] = {}
 
     for i, card in enumerate(drawn_cards):
         rarity = card.rarity or "common"
-        frag_value = FRAGMENT_VALUES.get(rarity, 1)
 
         if card.id in existing_map:
-            existing_map[card.id].fragments = (existing_map[card.id].fragments or 0) + frag_value
-            fragment_drops[rarity] = fragment_drops.get(rarity, 0) + frag_value
+            existing_map[card.id].count = (existing_map[card.id].count or 0) + 1
             is_new = False
         else:
             uc = UserCard(user_id=user.id, card_id=card.id, count=1, level=1, fragments=0)
@@ -331,6 +323,7 @@ async def _build_pack_response(
                 faction_code=card.faction_code,
                 is_new=is_new,
                 slot_index=i,
+                count=existing_map[card.id].count if card.id in existing_map else 1,
             )
         )
 
@@ -377,7 +370,7 @@ def _pack_cost(pack: PackDef, quantity: int) -> tuple[int, int]:
 
 
 @router.get("/packs", response_model=list[PackOut])
-async def list_packs(_user: User = Depends(_get_current_user)) -> list[PackOut]:
+async def list_packs(user: User = Depends(_get_current_user)) -> list[PackOut]:
     return [
         PackOut(
             id=p.id,
@@ -388,8 +381,10 @@ async def list_packs(_user: User = Depends(_get_current_user)) -> list[PackOut]:
             cost_type=p.cost_type,
             price_elo=p.price_elo,
             min_elo=p.min_elo,
+            one_time=p.one_time,
         )
         for p in PACKS.values()
+        if not (p.one_time and p.id == "newbie" and user.newbie_claimed)
     ]
 
 
@@ -440,6 +435,9 @@ async def open_pack_by_id(
     if not pack:
         raise HTTPException(status_code=404, detail="卡包不存在")
 
+    if pack.one_time and pack_id == "newbie" and user.newbie_claimed:
+        raise HTTPException(status_code=400, detail="新手卡包已领取")
+
     ink_cost, elo_cost = _pack_cost(pack, body.quantity)
 
     if pack.cost_type == "elo":
@@ -452,6 +450,9 @@ async def open_pack_by_id(
         if user.ink < ink_cost:
             raise HTTPException(status_code=400, detail="墨水不足")
         user.ink -= ink_cost
+
+    if pack_id == "newbie":
+        user.newbie_claimed = True
 
     result = await db.execute(select(Card))
     all_cards = list(result.scalars().all())
