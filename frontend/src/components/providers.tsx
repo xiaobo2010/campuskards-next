@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth-context";
-import BgmPlayer from "@/components/bgm-player";
 
 function ClientToaster() {
   return (
@@ -40,7 +39,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         {children}
-        <BgmPlayer />
         <ClientToaster />
       </AuthProvider>
     </QueryClientProvider>

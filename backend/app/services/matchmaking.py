@@ -121,20 +121,48 @@ class MatchmakingService:
                 return False
 
             lock_key = QUEUE_LOCK_TEMPLATE.format(mode=target_mode)
-            async with distributed_lock(lock_key, ttl_sec=8.0, wait_sec=5.0) as acquired:
+            acquired = False
+            try:
+                async with distributed_lock(lock_key, ttl_sec=8.0, wait_sec=5.0) as ok:
+                    acquired = ok
+                    if not acquired:
+                        # Lock contention — try force-remove from queue directly
+                        queue = await self._load_queue(target_mode)
+                        before = len(queue)
+                        queue = [e for e in queue if e.user_id != user_id]
+                        removed = len(queue) < before
+                        if removed:
+                            self._queues[target_mode] = queue
+                            self._user_queue_mode.pop(user_id, None)
+                            await self._save_queue(target_mode)
+                            await cache_delete(f"{USER_STATE_KEY}{user_id}")
+                        return removed
+                    return await self._dequeue_locked(user_id, target_mode)
+            except Exception:
                 if not acquired:
-                    return False
+                    # Fallback: force-remove without lock as last resort
+                    queue = await self._load_queue(target_mode)
+                    before = len(queue)
+                    queue = [e for e in queue if e.user_id != user_id]
+                    if len(queue) < before:
+                        self._queues[target_mode] = queue
+                        self._user_queue_mode.pop(user_id, None)
+                        await self._save_queue(target_mode)
+                        await cache_delete(f"{USER_STATE_KEY}{user_id}")
+                        return True
+                return False
 
-                queue = await self._load_queue(target_mode)
-                before = len(queue)
-                queue = [e for e in queue if e.user_id != user_id]
-                removed = len(queue) < before
-                if removed:
-                    self._queues[target_mode] = queue
-                    self._user_queue_mode.pop(user_id, None)
-                    await self._save_queue(target_mode)
-                    await cache_delete(f"{USER_STATE_KEY}{user_id}")
-                return removed
+    async def _dequeue_locked(self, user_id: str, target_mode: MatchMode) -> bool:
+        queue = await self._load_queue(target_mode)
+        before = len(queue)
+        queue = [e for e in queue if e.user_id != user_id]
+        removed = len(queue) < before
+        if removed:
+            self._queues[target_mode] = queue
+            self._user_queue_mode.pop(user_id, None)
+            await self._save_queue(target_mode)
+            await cache_delete(f"{USER_STATE_KEY}{user_id}")
+        return removed
 
     async def get_status(self, user_id: str) -> dict[str, Any]:
         # Active match: Redis is authoritative across workers

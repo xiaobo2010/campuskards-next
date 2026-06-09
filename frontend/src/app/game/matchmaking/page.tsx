@@ -136,12 +136,15 @@ export default function MatchmakingPage() {
   const handleCancelMatch = async () => {
     try {
       await matchApi.leaveQueue(selectedMode);
-    } catch {
-      // already left queue
+      setMatchState("idle");
+      setSearchTime(0);
+      toast.info("已取消匹配");
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "取消匹配失败";
+      toast.error(msg + "，稍后重试");
+      // Still reset UI since the user wants to leave, but keep searching state
+      // so they know to retry
     }
-    setMatchState("idle");
-    setSearchTime(0);
-    toast.info("已取消匹配");
   };
 
   if (authLoading) {

@@ -85,10 +85,10 @@ async def game_websocket(
                     finalize_result = await game_manager.handle_play_card(
                         room,
                         user_id,
-                        str(payload.get("card_id", "")),
-                        str(payload.get("position", "front")),
+                        str(payload.get("card_id") or ""),
+                        str(payload.get("position") or "front"),
                         payload.get("slot"),
-                        str(payload.get("target_id")) if payload.get("target_id") else None,
+                        str(payload.get("target_id")) if payload.get("target_id") is not None else None,
                     )
 
                 elif event == "attack":
@@ -98,7 +98,7 @@ async def game_websocket(
                         room,
                         user_id,
                         [str(a) for a in attacker_ids],
-                        str(target_id) if target_id else None,
+                        str(target_id) if target_id is not None else None,
                     )
 
                 elif event == "end_turn":
@@ -108,8 +108,8 @@ async def game_websocket(
                     finalize_result = await game_manager.handle_resolve_choice(
                         room,
                         user_id,
-                        str(payload.get("choice_id", "")),
-                        str(payload.get("target_id")) if payload.get("target_id") else None,
+                        str(payload.get("choice_id") or ""),
+                        str(payload.get("target_id")) if payload.get("target_id") is not None else None,
                     )
 
                 elif event == "resolve_discard":
@@ -124,8 +124,8 @@ async def game_websocket(
                     finalize_result = await game_manager.handle_move_unit(
                         room,
                         user_id,
-                        str(payload.get("unit_id", "")),
-                        str(payload.get("to_line", "front")),
+                        str(payload.get("unit_id") or ""),
+                        str(payload.get("to_line") or "front"),
                     )
 
                 elif event == "ping":
@@ -135,8 +135,8 @@ async def game_websocket(
                     finalize_result = await game_manager.handle_use_ability(
                         room,
                         user_id,
-                        str(payload.get("card_id", "")),
-                        str(payload.get("target_id")) if payload.get("target_id") else None,
+                        str(payload.get("card_id") or ""),
+                        str(payload.get("target_id")) if payload.get("target_id") is not None else None,
                     )
 
                 else:

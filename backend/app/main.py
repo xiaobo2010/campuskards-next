@@ -169,3 +169,9 @@ async def health_check():
         "redis": "ok" if redis_ok else "unavailable",
         "worker_id": get_worker_id(),
     }
+
+
+@app.get("/api/login-bg")
+async def login_background():
+    """Return the current login page background image URL."""
+    return {"url": "/images/login-bg.png"}

@@ -14,13 +14,18 @@ STAT_GROWTH: dict[str, dict[str, int]] = {
 }
 
 
+# Build a case-insensitive lookup for unit type growth
+_NORMALIZED_GROWTH: dict[str, dict[str, int]] = {
+    k.lower(): v for k, v in STAT_GROWTH.items()
+}
+
+
 def apply_level_to_card_dict(card: dict, *, level: int, unit_type: str | None = None) -> dict:
     """Mutate card dict with scaled stats for level > 1."""
     if level <= 1:
         return card
-    growth = STAT_GROWTH.get((unit_type or "").upper(), STAT_GROWTH.get(unit_type or "", DEFAULT_GROWTH))
-    if unit_type and unit_type not in STAT_GROWTH and unit_type.upper() in STAT_GROWTH:
-        growth = STAT_GROWTH[unit_type.upper()]
+    ut_lower = (unit_type or "").lower()
+    growth = _NORMALIZED_GROWTH.get(ut_lower, DEFAULT_GROWTH)
     delta = level - 1
     card = dict(card)
     card["power"] = (card.get("power") or 0) + growth["power"] * delta

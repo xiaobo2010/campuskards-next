@@ -187,6 +187,8 @@ async def start_pve_match(
         await ensure_pve_bot(db)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"AI系统初始化失败：{exc}") from exc
 
     ticket = MatchTicket(
         match_id=str(uuid.uuid4()),
@@ -200,7 +202,12 @@ async def start_pve_match(
         p2_elo=user.elo,
         p2_deck_id=str(BOT_DECK_ID),
     )
-    await _start_match(db, ticket)
+    try:
+        await _start_match(db, ticket)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"创建AI对局失败：{exc}") from exc
     return PveMatchResponse(
         status="matched",
         mode="pve",

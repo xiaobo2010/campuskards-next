@@ -3,12 +3,14 @@
 export interface LoginRequest {
   login: string;
   password: string;
+  remember?: boolean;
 }
 
 export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  remember?: boolean;
 }
 
 export interface TokenResponse {

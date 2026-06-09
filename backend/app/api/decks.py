@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.api.auth import _get_current_user
-from app.models import Deck, DeckCard, Card, User, UserCard
+from app.models import Deck, DeckCard, Card, Faction, User, UserCard
 from app.schemas.card import DeckCreate, DeckUpdate, DeckOut, DeckListOut, DeckCardOut, CardOut
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
@@ -149,24 +149,44 @@ async def create_deck(
         if dominant:
             resolved_faction = dominant
 
-    deck = Deck(
-        user_id=user.id,
+    faction = await db.get(Faction, resolved_faction)
+    if not faction:
+        resolved_faction = "key_class"
+        faction = await db.get(Faction, resolved_faction)
+        if not faction:
+            raise HTTPException(status_code=500, detail="默认势力未初始化，请联系管理员")
+
+    try:
+        deck = Deck(
+            user_id=user.id,
+            name=body.name,
+            faction_code=resolved_faction,
+            ally_faction_code=body.ally_faction_code,
+        )
+        db.add(deck)
+        await db.flush()
+
+        for entry in body.cards:
+            c = await db.get(Card, entry.card_id)
+            if not c:
+                raise HTTPException(status_code=400, detail=f"卡牌 {entry.card_id} 不存在")
+            db.add(DeckCard(deck_id=deck.id, card_id=entry.card_id, quantity=entry.quantity))
+
+        await db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"创建卡组失败：{e}") from e
+
+    deck = await _load_deck(db, deck.id)
+    return _deck_to_out(deck) if deck else DeckOut(
+        id=str(uuid.uuid4()),
+        user_id=str(user.id),
         name=body.name,
         faction_code=resolved_faction,
-        ally_faction_code=body.ally_faction_code,
+        entries=[],
     )
-    db.add(deck)
-    await db.flush()
-
-    for entry in body.cards:
-        c = await db.get(Card, entry.card_id)
-        if not c:
-            raise HTTPException(status_code=400, detail=f"卡牌 {entry.card_id} 不存在")
-        db.add(DeckCard(deck_id=deck.id, card_id=entry.card_id, quantity=entry.quantity))
-
-    await db.commit()
-    deck = await _load_deck(db, deck.id)
-    return _deck_to_out(deck)
 
 
 @router.get("", response_model=list[DeckListOut])
