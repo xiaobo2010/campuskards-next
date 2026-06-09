@@ -416,12 +416,7 @@ class GameManager:
                 raise GameError("Not your turn")
             line = "front" if position == "front" else "support"
             side = room.game.battlefield.side_for(player)
-            card = room.game._find_in_list(side.hand, card_id)
-            if not card:
-                for c in side.hand:
-                    if c.card_id == card_id:
-                        card = c
-                        break
+            card = next((c for c in side.hand if c.uid == card_id), None) or next((c for c in side.hand if c.card_id == card_id), None)
             if not card:
                 raise GameError(f"Card {card_id} not in hand")
 
@@ -580,7 +575,6 @@ class GameManager:
                     "player": player_key(player),
                 })
 
-            destroyed: list[str] = []
             for attacker_id in attacker_ids:
                 before_opp = room.game.battlefield.opponent_side(player).all_units[:]
                 before_opp_hp = room.game.battlefield.opponent_side(player).spirit_total
@@ -588,9 +582,9 @@ class GameManager:
                 after_opp = room.game.battlefield.opponent_side(player).all_units
                 after_opp_hp = room.game.battlefield.opponent_side(player).spirit_total
                 damage = max(0, before_opp_hp - after_opp_hp)
-                for u in before_opp:
-                    if u not in after_opp and not u.alive:
-                        destroyed.append(u.uid)
+                destroyed = [
+                    u.uid for u in before_opp if u not in after_opp and not u.alive
+                ]
 
                 await self._broadcast(room, "attack_result", {
                     "attacker_id": attacker_id,

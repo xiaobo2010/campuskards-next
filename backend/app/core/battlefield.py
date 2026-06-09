@@ -27,35 +27,6 @@ MAX_LINE = MAX_FRONT_LINE  # legacy alias used by game_engine
 
 
 @dataclass
-class Advisor:
-    """A passive advisor card providing ongoing effects.
-
-    Attributes
-    ----------
-    effect_code:
-        Identifier for the advisor's effect (used by effect engine).
-    duration:
-        Number of turns remaining. -1 means permanent.
-    card_id:
-        Reference to the original card definition.
-    name:
-        Display name.
-    """
-
-    effect_code: str
-    duration: int = -1  # -1 = permanent
-    card_id: str = ""
-    name: str = ""
-
-    def tick(self) -> bool:
-        """Decrement duration (if not permanent). Return True if still active."""
-        if self.duration == -1:
-            return True
-        self.duration -= 1
-        return self.duration > 0
-
-
-@dataclass
 class PlayerField:
     """One player's side of the battlefield.
 
@@ -70,7 +41,6 @@ class PlayerField:
 
     front_line: list[Unit] = field(default_factory=list)
     support_line: list[Unit] = field(default_factory=list)
-    advisors: list[Advisor] = field(default_factory=list)
     advisor_units: list[Unit] = field(default_factory=list)
     traps: list[Unit] = field(default_factory=list)
     hand: list[Unit] = field(default_factory=list)
@@ -171,27 +141,3 @@ def get_unit_by_uid(field: PlayerField, uid: str) -> Unit | None:
     """
     return field.get_unit_by_uid(uid)
 
-
-def remove_dead_units(field: PlayerField) -> list[Unit]:
-    """Remove all dead units (spirit <= 0) from the field.
-
-    Returns list of removed units (for graveyard processing).
-    """
-    dead: list[Unit] = []
-
-    # Check front line
-    for unit in field.front_line[:]:  # copy list for safe iteration
-        if not unit.alive:
-            field.front_line.remove(unit)
-            dead.append(unit)
-
-    # Check support line
-    for unit in field.support_line[:]:
-        if not unit.alive:
-            field.support_line.remove(unit)
-            dead.append(unit)
-
-    # Move to graveyard
-    field.graveyard.extend(dead)
-
-    return dead

@@ -399,7 +399,7 @@ class GameState:
         if is_unit_card(card.card_type):
             raise GameError(f"{card.name} is a unit — deploy to a battle line")
 
-        if is_counter_card(card.card_type) or is_trap_effect(card.effect_text or ""):
+        if is_counter_card(card.card_type):
             return self.play_trap(card_uid)
 
         cost = self._effective_cost(card, player)
@@ -436,13 +436,13 @@ class GameState:
             return card
 
         execute_spell(self, player, card, target_uid=target_uid)
+        side.graveyard.append(card)
+        apply_all_synergies(self)
+        self._after_card_play(player, card)
         if self.pending_resolution and self.pending_resolution.context == "discard":
             if self.pending_resolution.card is None:
                 self.pending_resolution.card = card
             return card
-        side.graveyard.append(card)
-        apply_all_synergies(self)
-        self._after_card_play(player, card)
         self._log(player, "play_spell", f"{card.name} played (ink {side.ink})")
         return card
 

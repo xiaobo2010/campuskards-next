@@ -15,6 +15,12 @@ class PveMatchRequest(BaseModel):
     deck_id: UUID
 
 
+class OpponentInfo(BaseModel):
+    id: str
+    username: str
+    elo: int
+
+
 class PveMatchResponse(BaseModel):
     status: str = "matched"
     mode: MatchMode = "pve"
@@ -32,12 +38,6 @@ class MatchQueueResponse(BaseModel):
 
 class MatchQueueCancelResponse(BaseModel):
     status: str = "cancelled"
-
-
-class OpponentInfo(BaseModel):
-    id: str
-    username: str
-    elo: int
 
 
 class MatchQueueStatusResponse(BaseModel):

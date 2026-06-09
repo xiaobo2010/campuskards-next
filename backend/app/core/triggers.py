@@ -41,9 +41,11 @@ def trap_matches(trap: CardInstance, event: PlayEvent) -> bool:
         return True
     if "当对手打出单位卡" in text and event.kind == PlayEventKind.UNIT:
         return True
-    m = re.search(r"当对手打出费用≥(\d+)", text)
-    if m and event.cost >= int(m.group(1)):
-        return True
+    m = re.search(r"当对手打出费用([≥≤])(\d+)", text)
+    if m:
+        threshold = int(m.group(2))
+        if (m.group(1) == "≤" and event.cost <= threshold) or (m.group(1) == "≥" and event.cost >= threshold):
+            return True
     if "当对手打出" in text and event.kind == PlayEventKind.ANY:
         return True
     return False
@@ -92,9 +94,7 @@ def fire_opponent_play_hooks(game: GameState, event: PlayEvent) -> None:
     side = game.battlefield.side_for(actor)
     for unit in side.all_units:
         text = unit.effect_text or ""
-        if "对手每打出" in text or "当对手打出" in text:
-            if "当对手" in text and unit in side.all_units:
-                continue  # trap-style on units handled below for defender
+        if "对手每打出" in text:
             effect_engine.execute_reactive_text(game, actor, unit, text, event)
 
 
@@ -106,7 +106,7 @@ def fire_defender_reactive_units(game: GameState, event: PlayEvent) -> None:
     side = game.battlefield.side_for(defender)
     for unit in side.all_units:
         text = unit.effect_text or ""
-        if "当对手打出" in text and "对手每打出" not in text:
+        if "当对手打出" in text or "对手每打出" in text:
             effect_engine.execute_reactive_text(game, defender, unit, text, event)
 
 

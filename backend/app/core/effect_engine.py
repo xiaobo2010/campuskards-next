@@ -216,7 +216,7 @@ def execute_effect_text(
 
     # ── Direct damage ──
     dmg = _resolve_conditional_damage(game, player, text)
-    if dmg and ("伤害" in text or "消灭" not in text):
+    if dmg and "伤害" in text:
         target = None
         if target_uid:
             target = _find_target(game, player, target_uid)
@@ -236,7 +236,7 @@ def execute_effect_text(
                     game._check_death(target.owner)
 
     # ── AOE damage to all enemies ──
-    if "所有敌方" in text and "伤害" in text:
+    elif "所有敌方" in text and "伤害" in text:
         aoe = _resolve_conditional_damage(game, player, text) or 1
         for unit in _all_enemy_units(game, player)[:]:
             _damage_unit(unit, aoe)
@@ -245,11 +245,10 @@ def execute_effect_text(
         _log(game, player, "effect_aoe", f"{aoe} to all enemies")
 
     # ── Buff single unit (+2/+2 etc.) ──
-    if re.search(r"使.*?单位.*?\+", text) or re.search(r"进入.*?单位.*?\+", text):
-        pw, sp = _resolve_conditional_buff(game, player, text, default_pw=2, default_sp=2)
-        m = _parse_stat_buff(text)
-        if m:
-            pw, sp = m
+    buff = _parse_stat_buff(text)
+    if buff and (re.search(r"使.*?\+", text) or re.search(r"进入.*?\+", text)):
+        pw, sp = _resolve_conditional_buff(game, player, text, default_pw=buff[0], default_sp=buff[1])
+        pw, sp = _parse_stat_buff(text) or (pw, sp)
         target = _find_target(
             game,
             player,
@@ -257,7 +256,7 @@ def execute_effect_text(
             prefer_enemy="敌方" in text,
         )
         if target:
-            target.apply_temp_buff(power=pw, spirit=sp, grit=sp)
+            target.apply_temp_buff(power=pw, spirit=sp)
             _log(game, player, "effect_buff", f"+{pw}/+{sp} → {target.name}")
 
     # ── Buff all friendly units ──
@@ -266,7 +265,7 @@ def execute_effect_text(
         pw, sp = int(m.group(1)), int(m.group(2))
         pw, sp = _resolve_conditional_buff(game, player, text, default_pw=pw, default_sp=sp)
         for unit in _all_friendly_units(game, player):
-            unit.apply_temp_buff(power=pw, spirit=sp, grit=sp)
+            unit.apply_temp_buff(power=pw, spirit=sp)
         _log(game, player, "effect_buff", f"all allies +{pw}/+{sp}")
 
     # ── Buff all friendly units grit ──
