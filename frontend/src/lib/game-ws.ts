@@ -36,15 +36,24 @@ export class GameWsClient {
   private matchId: string;
   private handlers: GameWsHandlers;
   private closed = false;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectDelay = 2000;
+  private heartbeatInterval = 30000;
 
   constructor(matchId: string, handlers: GameWsHandlers) {
     this.matchId = matchId;
     this.handlers = handlers;
   }
 
+  private getToken(): string | null {
+    return typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  }
+
   connect(): void {
-    const token =
-      typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const token = this.getToken();
     if (!token) {
       this.handlers.onError?.("未登录，无法连接对战");
       this.handlers.onStatusChange?.("error");
@@ -59,14 +68,18 @@ export class GameWsClient {
     this.ws = ws;
 
     ws.onopen = () => {
+      this.reconnectAttempts = 0;
       this.handlers.onStatusChange?.("connected");
       this.send("join_match", { match_id: this.matchId });
+      this.startHeartbeat();
     };
 
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string) as { event: string; payload: unknown };
-        this.dispatch(msg.event, msg.payload);
+        if (msg.event !== "pong") {
+          this.dispatch(msg.event, msg.payload);
+        }
       } catch {
         this.handlers.onError?.("收到无效消息");
       }
@@ -78,10 +91,44 @@ export class GameWsClient {
     };
 
     ws.onclose = () => {
+      this.stopHeartbeat();
       if (!this.closed) {
         this.handlers.onStatusChange?.("disconnected");
+        this.tryReconnect();
       }
     };
+  }
+
+  private tryReconnect(): void {
+    if (this.closed || this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    this.reconnectAttempts++;
+    this.reconnectTimer = setTimeout(() => {
+      if (!this.closed) {
+        this.connect();
+      }
+    }, this.reconnectDelay * this.reconnectAttempts);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      this.send("ping");
+    }, this.heartbeatInterval);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  cancelReconnect(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
   }
 
   private dispatch(event: string, payload: unknown): void {
@@ -121,6 +168,13 @@ export class GameWsClient {
       case "attack_result":
         this.handlers.onAttackResult?.(payload as Record<string, unknown>);
         break;
+      case "discard_resolved":
+        this.handlers.onChoiceResolved?.(payload as Record<string, unknown>);
+        break;
+      case "unit_moved":
+      case "ability_used":
+      case "combat_phase":
+        break;
       case "game_over":
         this.handlers.onGameOver?.(payload as GameOverPayload);
         break;
@@ -146,13 +200,16 @@ export class GameWsClient {
   playCard(
     cardUid: string,
     position: "front" | "support" = "front",
-    targetId?: string | null
+    targetId?: string | null,
+    slot?: number,
   ): void {
-    this.send("play_card", {
+    const payload: Record<string, unknown> = {
       card_id: cardUid,
       position,
-      ...(targetId ? { target_id: targetId } : {}),
-    });
+    };
+    if (targetId) payload.target_id = targetId;
+    if (slot != null) payload.slot = slot;
+    this.send("play_card", payload);
   }
 
   resolveChoice(choiceId: string, targetId?: string | null): void {
@@ -187,6 +244,8 @@ export class GameWsClient {
 
   disconnect(): void {
     this.closed = true;
+    this.cancelReconnect();
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
     this.handlers.onStatusChange?.("idle");

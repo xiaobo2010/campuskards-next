@@ -50,7 +50,7 @@ async def game_websocket(
         while True:
             try:
                 raw = await asyncio.wait_for(websocket.receive_json(), timeout=120)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.info("WS %s: receive timeout, closing", match_id)
                 break
 
@@ -112,6 +112,9 @@ async def game_websocket(
                         str(payload.get("unit_id", "")),
                         str(payload.get("to_line", "front")),
                     )
+
+                elif event == "ping":
+                    await websocket.send_json({"event": "pong", "payload": {}})
 
                 elif event == "use_ability":
                     finalize_result = await game_manager.handle_use_ability(

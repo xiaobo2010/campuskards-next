@@ -69,6 +69,10 @@ export default function MatchmakingPage() {
         setTimeout(() => {
           router.push(`/game/play?match_id=${status.match_id}`);
         }, 1500);
+      } else if (status.status === "idle") {
+        setMatchState("idle");
+        setSearchTime(0);
+        toast.error("已退出匹配队列");
       }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "查询匹配状态失败";

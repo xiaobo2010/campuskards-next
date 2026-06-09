@@ -63,6 +63,7 @@ function LineRow({
   onUnitClick,
   selectedUid,
   interactive,
+  choiceTargetMode,
 }: {
   label: string;
   icon?: React.ReactNode;
@@ -113,6 +114,7 @@ function DeployLineRow({
   onPlacementSelect,
   onDropCard,
   onUnitDoubleClick,
+  onMoveUnit,
 }: {
   label: string;
   icon?: React.ReactNode;
@@ -126,18 +128,17 @@ function DeployLineRow({
   placementCard?: BattleUnit | null;
   onPlacementSelect?: (line: "front" | "support") => void;
   onDropCard?: (cardUid: string, line: "front" | "support") => void;
+  onMoveUnit?: (unitId: string) => void;
 }) {
   const canPlaceMore = units.length < maxSlots;
   const showPlacementSlot = !!placementCard && canPlaceMore;
+  const otherLine = lineKey === "front" ? "support" : "front";
 
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 uppercase tracking-wider">
         {icon}
         {label}
-        {showPlacementSlot && (
-          <span className="text-purple-400 normal-case tracking-normal">· 点击虚线框放置</span>
-        )}
       </div>
       <div
         className={cn(
@@ -156,24 +157,34 @@ function DeployLineRow({
           if (uid) onDropCard?.(uid, lineKey);
         }}
       >
-        {units.map((u) => (
-          <BattleCard
-            key={u.uid}
-            unit={u}
-            variant="field"
-            selected={selectedUid === u.uid}
-            onClick={interactive ? () => onUnitClick?.(u) : undefined}
-            onDoubleClick={interactive ? () => onUnitDoubleClick?.(u) : undefined}
-            disabled={!interactive}
-          />
-        ))}
         {showPlacementSlot && (
           <PlacementSlot
-            active
             lineLabel={label}
             onClick={() => onPlacementSelect?.(lineKey)}
           />
         )}
+        {units.map((u) => (
+          <div key={u.uid} className="relative shrink-0">
+            <BattleCard
+              unit={u}
+              variant="field"
+              selected={selectedUid === u.uid}
+              onClick={interactive ? () => onUnitClick?.(u) : undefined}
+              onDoubleClick={interactive ? () => onUnitDoubleClick?.(u) : undefined}
+              disabled={!interactive}
+            />
+            {interactive && onMoveUnit && (
+              <button
+                type="button"
+                title={`移到${otherLine === "front" ? "前线" : "支援"}`}
+                onClick={(e) => { e.stopPropagation(); onMoveUnit(u.uid); }}
+                className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center shadow transition-colors"
+              >
+                ⇄
+              </button>
+            )}
+          </div>
+        ))}
         {!placementCard && units.length === 0 && <EmptyBattleSlot />}
       </div>
     </div>
@@ -213,6 +224,8 @@ function PlayPageInner() {
 
   const matchId = matchIdFromUrl || storedMatchId;
   const viewer = gameState?.viewer ?? "p1";
+  const viewerRef = useRef(viewer);
+  viewerRef.current = viewer;
   const me = gameState?.players[viewer];
   const oppKey = gameState?.opponent ?? (viewer === "p1" ? "p2" : "p1");
   const opp = gameState ? gameState.players[oppKey] : null;
@@ -264,12 +277,12 @@ function PlayPageInner() {
       },
       onTimerWarning: (payload) => {
         onTimerWarning();
-        if (payload.player === viewer) {
+        if (payload.player === viewerRef.current) {
           toast.warning(`剩余 ${payload.seconds_left} 秒，请尽快行动！`, { duration: 5000 });
         }
       },
       onTurnTimeout: (payload) => {
-        if (payload.player === viewer) {
+        if (payload.player === viewerRef.current) {
           toast.info("回合时间已到，自动结束回合");
         } else {
           toast.info("对手回合超时");
@@ -303,7 +316,6 @@ function PlayPageInner() {
   }, [
     matchId,
     user,
-    viewer,
     setGameState,
     setConnectionStatus,
     setLastError,
@@ -320,7 +332,7 @@ function PlayPageInner() {
     return () => clearInterval(id);
   }, [connectionStatus]);
 
-  const handlePlayCard = (card: BattleUnit, line: "front" | "support" = "front") => {
+  const handlePlayCard = (card: BattleUnit, line: "front" | "support" = "front", slot?: number) => {
     if (pendingChoice) {
       toast.info("请先完成效果抉择");
       return;
@@ -339,7 +351,7 @@ function PlayPageInner() {
       toast.error(`${line === "front" ? "前线" : "支援"}已满`);
       return;
     }
-    wsRef.current?.playCard(card.uid, line);
+    wsRef.current?.playCard(card.uid, line, null, slot);
     setPlacementCard(null);
   };
 
@@ -385,6 +397,20 @@ function PlayPageInner() {
     const card = me?.hand?.find((c) => c.uid === cardUid);
     if (!card) return;
     handlePlayCard(card, line);
+  };
+
+  const handleMoveUnit = (unitId: string) => {
+    if (!isMyTurn || !me) return;
+    const isFront = me.front_line.some((u) => u.uid === unitId);
+    const currentLine = isFront ? "front" : "support";
+    const otherLine = isFront ? "support" : "front";
+    const target = isFront ? me.support_line : me.front_line;
+    const maxSlots = otherLine === "front" ? MAX_FRONT_SLOTS : MAX_SUPPORT_SLOTS;
+    if (target.length >= maxSlots) {
+      toast.error(`${otherLine === "front" ? "前线" : "支援"}已满`);
+      return;
+    }
+    wsRef.current?.moveUnit(unitId, otherLine);
   };
 
   const handleMyUnitClick = (unit: BattleUnit) => {
@@ -671,6 +697,7 @@ function PlayPageInner() {
                 placementCard={placementCard}
                 onPlacementSelect={(line) => placementCard && handlePlayCard(placementCard, line)}
                 onDropCard={handleDropOnLine}
+                onMoveUnit={handleMoveUnit}
               />
               <DeployLineRow
                 label="支援"
@@ -685,6 +712,7 @@ function PlayPageInner() {
                 placementCard={placementCard}
                 onPlacementSelect={(line) => placementCard && handlePlayCard(placementCard, line)}
                 onDropCard={handleDropOnLine}
+                onMoveUnit={handleMoveUnit}
               />
             </div>
           </motion.section>

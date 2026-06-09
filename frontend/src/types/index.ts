@@ -242,6 +242,7 @@ export interface BattleUnit {
   card_type?: string | null;
   synergy_tags?: string[];
   base_power?: number;
+  base_spirit?: number;
   unit_type?: string | null;
   keywords?: string[];
   immune_turns?: number;

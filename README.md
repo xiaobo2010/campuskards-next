@@ -34,7 +34,7 @@
 | 状态 | React Query + AuthContext（认证）· Zustand（游戏状态） |
 | 后端 | FastAPI · Python 3.12 · SQLAlchemy 2.0 async · Pydantic v2 |
 | 数据库 | PostgreSQL 16 · Alembic 迁移 |
-| 缓存 | Redis 7（预留，待接入匹配队列） |
+| 缓存 | Redis 7（匹配队列/房间持久化） |
 
 ## 部署架构
 
@@ -45,12 +45,12 @@
 Azure Tokyo VPS (Next.js :3001)
     │ HTTPS  gapi.xiaobocloud.fun
     ▼
-XiaoBo Server (FastAPI :8100) ──► PostgreSQL
+XiaoBo Server (FastAPI :8000) ──► PostgreSQL ──► Redis
 ```
 
 - 前端：`campuskards.xiaobocloud.fun`
 - API：`gapi.xiaobocloud.fun`
-- 详细部署步骤见 `DEVELOPMENT.md` 第八章
+- 详细部署步骤见 `deploy/xiaoboserver/` 目录
 
 ## 目录结构
 
@@ -67,7 +67,10 @@ campuskards/
 │       ├── api/        # 路由模块
 │       ├── models/     # ORM
 │       ├── schemas/    # Pydantic
-│       └── core/       # 配置 · 安全 · 数据库
+│       ├── core/       # 配置 · 安全 · 数据库 · 游戏引擎
+│       └── services/   # 业务逻辑（匹配/AI/房间管理）
+├── deploy/             # 生产部署脚本 + systemd service
+├── test/               # 测试 + 演示版前端
 ├── DEVELOPMENT.md      # 完整 API 规范 + 开发计划
 ├── BACKEND-GAP.md      # 前后端差异与 v1 限制跟踪
 └── docs/               # 游戏设计文档
@@ -85,7 +88,7 @@ pip install -e .
 
 cp ../.env.example .env    # 编辑 DATABASE_URL / SECRET_KEY
 alembic upgrade head
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8100
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### 前端
@@ -95,7 +98,7 @@ cd frontend
 npm install
 
 # 开发：API 默认同源，或设置：
-# NEXT_PUBLIC_API_URL=http://127.0.0.1:8100
+# NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 npm run dev    # → http://localhost:3000
 ```
 
@@ -111,6 +114,7 @@ npm run dev    # → http://localhost:3000
 | `REFRESH_TOKEN_EXPIRE_DAYS` | 刷新令牌过期（默认 7 天） |
 | `CORS_ORIGINS` | JSON 数组，如 `["http://localhost:3000"]` |
 | `ENVIRONMENT` | `development` 或 `production`（控制 Cookie Secure/SameSite） |
+| `REDIS_URL` | Redis 连接串（匹配队列/房间需要） |
 
 ### 前端
 
@@ -138,9 +142,23 @@ npm run dev    # → http://localhost:3000
 | Admin | `GET/PATCH /api/admin/users/{id}` | 用户管理 |
 | Admin | `*/api/admin/announcements` | 公告 CRUD + pin |
 | Leaderboard | `GET /api/leaderboard` | ELO 排行 |
-| **Match** | `POST /api/match/queue` 等 | ✅ v1 |
-| **Game WS** | `ws://host/ws/game/{match_id}` | ✅ v1 |
-| **Game WS** | `wss://.../ws/game/{id}` | **待实现** |
+| **Match** | `POST /api/match/queue` | 加入匹配队列 |
+| **Match** | `POST /api/match/pve` | 单人练习（对战 AI） |
+| **Match** | `DELETE /api/match/queue` | 取消匹配 |
+| **Match** | `GET /api/match/queue/status` | 查询匹配状态 |
+| **Match** | `GET /api/match/history` | 对战历史 |
+| **Match** | `GET /api/match/{id}` | 对战详情 |
+| **Match** | `POST /api/match/{id}/surrender` | 投降 |
+| **Game WS** | `ws://host/ws/game/{match_id}` | 实时对战 WebSocket |
+
+## 对战功能状态
+
+- ✅ **快速匹配**：休闲对战，AI 自动补位（15秒无人则匹配 AI）
+- ✅ **排位赛**：竞技对战，影响 ELO 分数
+- ✅ **PVE 练习**：单人挑战 AI（4 级难度：简单/中等/困难/大师）
+- ✅ **AI 难度自适应**：根据玩家 ELO 自动调整 AI 实力
+- ✅ **游戏引擎**：五派系协同/被动、抉择系统、反制陷阱、关键词完整
+- ✅ **WebSocket 实时同步**：全量状态 + 回合计时 + 超时处理
 
 ## 认证说明
 
@@ -158,6 +176,7 @@ npm run dev    # → http://localhost:3000
 | [`docs/upgrade-system-design.md`](docs/upgrade-system-design.md) | 卡牌升级系统 |
 | [`docs/faction-synergy-design.md`](docs/faction-synergy-design.md) | 派系协同 |
 | [`docs/battlefield-depth-design.md`](docs/battlefield-depth-design.md) | 战场机制 |
+| [`deploy/xiaoboserver/`](deploy/xiaoboserver/) | systemd 部署脚本 + service 文件 |
 
 ---
 

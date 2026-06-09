@@ -14,10 +14,11 @@
 | 前端 | Next.js 14 App Router + shadcn/ui + Framer Motion + Zustand + React Query |
 | 后端 | FastAPI + SQLAlchemy 2.0 + PostgreSQL + Pydantic v2 |
 | 前端部署 | Azure Tokyo `130.33.98.30:3001` |
-| 后端部署 | XiaoBo Server `/ssd/7a40/campuskards/backend/` |
+| 后端部署 | XiaoBo Server `/ssd/7a40/campuskards` |
 | 前端域名 | `campuskards.xiaobocloud.fun` |
 | 后端域名 | `gapi.xiaobocloud.fun` |
-| 本地仓库 | `~/.openclaw/workspace/code/campuskards/` |
+| 后端端口 | `127.0.0.1:8000`（通过 Nginx 反向代理至 `gapi.xiaobocloud.fun`） |
+| 前端端口 | `3000`（Next.js standalone 模式） |
 | GitHub | `xiaobo2010/campuskards` |
 
 ### ⚠️ Known Constraints
@@ -307,6 +308,7 @@ P1 支援线 (P1 Support Line)
 
 > 游戏核心功能。coder 实现时必须严格遵循以下规格。  
 > **v1 说明**：快速 (`quick`) 与排位 (`ranked`) 使用**独立匹配队列**；排位胜负影响 ELO，快速不影响。  
+> **AI 自动补位**：快速队列等待 >15 秒无人时，自动匹配 AI 对手（难度根据玩家 ELO 调整）。  
 > 对战进行中状态写入 Redis（`match:room:{id}`）；结算时生成完整战报写入 PostgreSQL `matches.replay_data`。  
 > WebSocket 连接仍在进程内存；多 worker 需配合 Redis Pub/Sub（待实现）。
 
@@ -315,14 +317,16 @@ P1 支援线 (P1 Support Line)
 | 1 | POST | `/api/match/queue` | ✅ | 加入匹配队列 | ✅ |
 | 2 | DELETE | `/api/match/queue` | ✅ | 取消匹配 | ✅ |
 | 3 | GET | `/api/match/queue/status` | ✅ | 查询匹配状态 | ✅ |
-| 4 | GET | `/api/match/history` | ✅ | 对战历史(分页) | ✅ |
-| 5 | GET | `/api/match/{id}` | ✅ | 对战详情 | ✅ |
-| 6 | POST | `/api/match/{id}/surrender` | ✅ | 投降 | ✅ |
+| 4 | POST | `/api/match/pve` | ✅ | 单人练习（对战 AI） | ✅ |
+| 5 | GET | `/api/match/stats` | ✅ | 对战统计数据 | ✅ |
+| 6 | GET | `/api/match/history` | ✅ | 对战历史(分页) | ✅ |
+| 7 | GET | `/api/match/{id}` | ✅ | 对战详情 | ✅ |
+| 8 | POST | `/api/match/{id}/surrender` | ✅ | 投降 | ✅ |
 
 **1. POST /api/match/queue**
 - 请求体：`{ deck_id: UUID, mode: "quick"|"ranked" }`（默认 `quick`）
-- 响应 `200`：`{ status: "queued", mode, queue_position: int, estimated_wait: int(ms) }`
-- 逻辑：加入对应模式的匹配池，同模式内按 ELO ±200 匹配
+- 响应 `200`：`{ status: "queued", mode, queue_position: int, estimated_wait: int(ms) }` 或 `{ status: "matched", match_id }`
+- 逻辑：加入对应模式的匹配池，同模式内按 ELO ±200 匹配；快速模式支持 AI 补位
 - 错误 `400`：卡组不合法 / 已在队列中
 
 **2. DELETE /api/match/queue**
@@ -330,17 +334,26 @@ P1 支援线 (P1 Support Line)
 
 **3. GET /api/match/queue/status**
 - 响应 `200`：`{ status: "queued"|"matched"|"idle", match_id?: UUID, opponent?: { id, username, elo } }`
-- `matched` 时返回对战 ID 和对手信息
+- `matched` 时返回对战 ID 和对手信息（AI 对手显示为"训练AI"）
 
-**4. GET /api/match/history**
+**4. POST /api/match/pve**
+- 请求体：`{ deck_id: UUID }`
+- 响应 `200`：`{ status: "matched", mode: "pve", match_id: UUID, opponent: { id, username, elo } }`
+- 前置条件：用户不在匹配队列中，没有进行中的对局
+- AI 难度根据用户 ELO 自动调整：<800 简单 / 800-1200 中等 / 1200-1600 困难 / 1600+ 大师
+
+**5. GET /api/match/stats**
+- 响应 `200`：`{ total_matches, wins, losses, draws, win_rate, ranked_matches, quick_matches, current_elo, elo_delta_7d, elo_timeline_7d }`
+
+**6. GET /api/match/history**
 - 查询参数：`page, page_size, result: "win"|"loss"|"draw"|None`
 - 响应 `200`：`PaginatedResponse<{ id, opponent: { id, username, elo }, result, my_deck_faction, opponent_deck_faction, turns_played, started_at, ended_at }>`
 
-**5. GET /api/match/{id}**
+**7. GET /api/match/{id}**
 - 响应 `200`：`{ id, mode, end_reason?, p1, p2, winner_id?, turns_played, started_at, ended_at, replay_data?: dict }`
 - `replay_data` 含 `event_log`、`summary`、`players`、`final_snapshot` 等完整战报
 
-**6. POST /api/match/{id}/surrender**
+**8. POST /api/match/{id}/surrender**
 - 响应 `200`：`{ result: "loss", elo_change: int }`
 
 ---
@@ -369,7 +382,7 @@ P1 支援线 (P1 Support Line)
 | 2 | C→S | `play_card` | `{ card_id, position: "front"\|"support", slot?: int }` | 出牌布阵 | ✅ |
 | 3 | C→S | `attack` | `{ attacker_ids: [str], target_id?: str }` | 攻击指令 | ✅ |
 | 4 | C→S | `end_turn` | `{}` | 结束回合 | ✅ |
-| 5 | C→S | `use_ability` | `{ card_id, ability_id, target_id? }` | 使用能力 | 🔴 v1 返回 error |
+| 5 | C→S | `use_ability` | `{ card_id, ability_id, target_id? }` | 使用能力（引擎已支持，前端待接入） | 🔶 |
 | 6 | S→C | `game_state` | 见下方结构 | 全量状态推送 | ✅ |
 | 7 | S→C | `turn_start` | `{ player: "p1"\|"p2", timer: int }` | 回合开始 | ✅ |
 | 8 | S→C | `card_played` | `{ player, card_id, instance_id, position, slot }` | 卡牌被打出 | ✅ |
@@ -432,9 +445,11 @@ P1 支援线 (P1 Support Line)
 | User | 2/2 | — | 100% |
 | Announcements | 2/2 | — | 100% |
 | Admin | 6/6 | — | 100% |
-| **Match** | **6/6** | — | **100%** |
-| **Game WS** | **9/12** | timer_warning, use_ability, 派系协同 | **75%** |
-| **总计** | **48/50** | **2** | **96%** |
+| Leaderboard | 1/1 | — | 100% |
+| **Match** | **8/8** | — | **100%** |
+| **Game WS** | **11/12** | `use_ability` 前端未接入 | **92%** |
+| **AI 系统** | **3/3** | — | **100%** |
+| **总计** | **55/57** | **2** | **96%** |
 
 ---
 
@@ -564,25 +579,107 @@ frontend/src/
 
 ## 八、部署 & 运维
 
-### 前端 (Azure Tokyo)
+### 架构
+
+| 组件 | 服务器 | 端口 | 域名 |
+|------|--------|------|------|
+| 后端 FastAPI | XiaoBo Server (systemd) | `127.0.0.1:8000` | `gapi.xiaobocloud.fun` (Nginx 反向代理) |
+| 前端 Next.js | Azure Tokyo (systemd) | `:3001` (next start standalone) | `campuskards.xiaobocloud.fun` (Nginx 反向代理) |
+| 数据库 PostgreSQL | XiaoBo Server (systemd) | `localhost:5432` | — |
+| 缓存 Redis | XiaoBo Server (systemd) | `localhost:6379` | — |
+
+### 自动部署 (`deploy/xiaoboserver/deploy.sh`)
+
 ```bash
-cd /home/xiaobo2010/campuskards-deploy
-git pull
-npm run build
-pm2 restart campuskards  # 或 systemd --user restart campuskards
+# 在 XiaoBo Server 上执行
+cd /ssd/7a40/campuskards/deploy/xiaoboserver
+bash deploy.sh
 ```
 
-### 后端 (XiaoBo Server)
+`deploy.sh` 自动执行：
+1. `git pull origin main`
+2. 安装后端 Python 依赖（uv sync）
+3. 构建前端（npm ci + npm run build）
+4. 运行数据库迁移（alembic upgrade head）
+5. 重启 systemd 服务（backend + frontend）
+
+### 手动部署
+
+#### 后端 (XiaoBo Server)
+
 ```bash
-cd /ssd/7a40/campuskards/backend
-git pull
-# Supervisor 或 systemd service 管理
+# 1. 拉取代码
+cd /ssd/7a40/campuskards
+git pull origin main
+
+# 2. 安装后端依赖
+cd backend
+source .venv/bin/activate
+uv sync --no-dev
+
+# 3. 运行迁移
+uv run alembic upgrade head
+
+# 4. 复制环境变量（首次）
+cp ../deploy/xiaoboserver/.env .env
+
+# 5. 重启服务
+sudo systemctl restart campuskards-backend
+```
+
+#### 前端 (Azure Tokyo)
+
+```bash
+# 1. 拉取代码
+cd /home/xiaobo2010/campuskards/frontend
+git pull origin main
+
+# 2. 安装依赖 + 构建
+npm ci
+npm run build
+
+# 3. 重启服务
+sudo systemctl restart campuskards-frontend
+```
+
+### systemd Service 文件位置
+
+```
+deploy/xiaoboserver/
+├── campuskards-backend.service     # FastAPI, 4 workers, MemoryMax=1G
+├── campuskards-frontend.service    # Next.js standalone (:3000)
+├── deploy.sh                       # 一键部署脚本
+├── backup.sh                       # DB 每日备份（保留 7 天）
+└── .env.example                    # 环境变量模板
+```
+
+### Service 配置要点
+
+- **后端**：`uvicorn` 4 workers，`--timeout-keep-alive 30` 防止 502
+- **前端**：Next.js `output: "standalone"`，`next start` 运行
+- **健康检查**：`GET /health` 返回 DB + Redis 状态
+- **数据库备份**：`backup.sh` 每日 `pg_dump` → 压缩 → 保留 7 天
+
+### 日志查看
+
+```bash
+# 后端
+sudo journalctl -u campuskards-backend -f --no-pager -n 50
+
+# 前端
+sudo journalctl -u campuskards-frontend -f --no-pager -n 50
+
+# Nginx
+sudo tail -f /var/log/nginx/access.log
 ```
 
 ### 流程：代码从本地推送到生产
+
 ```
-OCI (push GitHub) → XiaoBo Server (git pull) → 重启服务
+本地 → GitHub (git push) → XiaoBo Server (git pull + bash deploy.sh)
 ```
+
+> ⚠️ XiaoBo Server 无法直接连接 GitHub，需从 OCI 推送后在服务器上手动 `git pull`
 
 ---
 
