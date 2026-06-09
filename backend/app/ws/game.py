@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -27,8 +28,12 @@ async def _authenticate_ws(token: str | None, db: AsyncSession) -> str | None:
     user_id = payload.get("sub")
     if not user_id:
         return None
+    try:
+        user_uuid = uuid.UUID(str(user_id))
+    except ValueError:
+        return None
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         return None
