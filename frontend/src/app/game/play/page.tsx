@@ -20,6 +20,7 @@ import { matchApi } from "@/lib/api";
 import { GameWsClient } from "@/lib/game-ws";
 import { useMatchStore } from "@/store/useMatchStore";
 import { useTurnTimer } from "@/hooks/use-turn-timer";
+import { useSfx } from "@/hooks/use-sfx";
 import BattleTurnTimer, { MatchElapsedClock } from "@/components/game/battle/battle-turn-timer";
 import BattleTimerWarning from "@/components/game/battle/battle-timer-warning";
 import BattleCard, {
@@ -246,6 +247,8 @@ function PlayPageInner() {
     syncFromServer,
   } = useTurnTimer(isMyTurn);
 
+  const { playSfx } = useSfx();
+
   useEffect(() => {
     if (!authLoading && !user) router.push("/auth/login");
   }, [user, authLoading, router]);
@@ -289,9 +292,20 @@ function PlayPageInner() {
         }
         setSelectedAttackerUid(null);
       },
+      onCardPlayed: () => {
+        playSfx("cardPlay");
+      },
+      onAttackResult: () => {
+        playSfx("attack");
+      },
       onGameOver: (payload) => {
         setGameOver(payload);
         setSelectedAttackerUid(null);
+        if (payload.winner_id === user?.id) {
+          playSfx("victory");
+        } else {
+          playSfx("defeat");
+        }
       },
       onError: (detail) => {
         setLastError(detail);
@@ -365,6 +379,7 @@ function PlayPageInner() {
       return;
     }
     wsRef.current?.playCard(card.uid, line, null, slot);
+    playSfx("cardPlay");
     setPlacementCard(null);
   };
 
@@ -480,12 +495,14 @@ function PlayPageInner() {
     }
     if (!selectedAttackerUid || !isMyTurn) return;
     wsRef.current?.attack([selectedAttackerUid], unit.uid);
+    playSfx("attack");
     setSelectedAttackerUid(null);
   };
 
   const handleFaceAttack = () => {
     if (!selectedAttackerUid || !isMyTurn) return;
     wsRef.current?.attack([selectedAttackerUid], null);
+    playSfx("attack");
     setSelectedAttackerUid(null);
   };
 
@@ -495,6 +512,7 @@ function PlayPageInner() {
       return;
     }
     wsRef.current?.endTurn();
+    playSfx("uiClick");
     setSelectedAttackerUid(null);
   };
 

@@ -58,6 +58,7 @@ async def list_cards(
     rarity: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
+    all_cards: bool = Query(default=False, alias="all"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CardOut]:
@@ -74,6 +75,10 @@ async def list_cards(
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0
+
+    if all_cards:
+        page = 1
+        page_size = min(max(total, 1), 500)
 
     stmt = stmt.order_by(Card.cost, Card.name).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(stmt)

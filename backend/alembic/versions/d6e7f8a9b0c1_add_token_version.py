@@ -18,7 +18,15 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    columns = [col["name"] for col in inspector.get_columns("users")]
+    columns = {col["name"] for col in inspector.get_columns("users")}
+
+    # Safety net: c5d6e7f8a9b0 may have been stamped without running
+    if "newbie_claimed" not in columns:
+        op.add_column(
+            "users",
+            sa.Column("newbie_claimed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        )
+        columns.add("newbie_claimed")
 
     if "token_version" not in columns:
         op.add_column(
@@ -30,7 +38,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     conn = op.get_bind()
     inspector = sa.inspect(conn)
-    columns = [col["name"] for col in inspector.get_columns("users")]
+    columns = {col["name"] for col in inspector.get_columns("users")}
 
     if "token_version" in columns:
         op.drop_column("users", "token_version")

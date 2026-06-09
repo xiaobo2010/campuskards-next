@@ -20,12 +20,14 @@ import { Package, AlertCircle, RefreshCw, AlertTriangle, ArrowLeft } from "lucid
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { DeckDropZone, DeckLibraryCard } from "@/components/game/deck-drop-zone";
+import { formatFaction } from "@/lib/faction-labels";
 
 const DECK_SIZE = 30;
 const UNIT_MAX = 22;
 const EFFECT_MAX = 20;
 const COUNTER_MAX = 10;
 const MAX_COPIES = 3;
+const MIN_MAIN_FACTION = 20;
 
 type TypeFilter = "all" | "Unit" | "Effect" | "Counter";
 
@@ -93,6 +95,17 @@ function DeckBuilderContent() {
     return counts;
   }, [selectedCardIds]);
 
+  const mainFaction = useMemo(() => {
+    const factionCounts: Record<string, number> = {};
+    for (const id of selectedCardIds) {
+      const code = cardMap[id]?.faction_code;
+      if (code) factionCounts[code] = (factionCounts[code] ?? 0) + 1;
+    }
+    const sorted = Object.entries(factionCounts).sort((a, b) => b[1] - a[1]);
+    if (!sorted.length) return null;
+    return { code: sorted[0][0], count: sorted[0][1] };
+  }, [selectedCardIds, cardMap]);
+
   const deckSize = selectedCardIds.length;
   const warnings: string[] = [];
   if (deckSize > 0 && deckSize < DECK_SIZE)
@@ -104,6 +117,10 @@ function DeckBuilderContent() {
     warnings.push(`效果牌超过 ${EFFECT_MAX} 张上限`);
   if (categoryCounts.counter > COUNTER_MAX)
     warnings.push(`反击牌超过 ${COUNTER_MAX} 张上限`);
+  if (deckSize > 0 && mainFaction && mainFaction.count < MIN_MAIN_FACTION)
+    warnings.push(
+      `主势力 ${formatFaction(mainFaction.code)} 需至少 ${MIN_MAIN_FACTION} 张，当前 ${mainFaction.count} 张`,
+    );
 
   const loadCards = useCallback(() => {
     setCardsLoading(true);
@@ -292,6 +309,9 @@ function DeckBuilderContent() {
             maxCards={DECK_SIZE}
             limits={{ unit: UNIT_MAX, effect: EFFECT_MAX, counter: COUNTER_MAX }}
             counts={categoryCounts}
+            mainFaction={mainFaction}
+            minMainFaction={MIN_MAIN_FACTION}
+            maxCopiesPerCard={MAX_COPIES}
             onChange={setSelectedCardIds}
           >
             {warnings.length > 0 && (

@@ -264,12 +264,18 @@ export const cardsApi = {
     page?: number;
     page_size?: number;
     faction_code?: string;
+    /** Request full catalog in one call (backend alias: all=true). */
+    all?: boolean;
     /** When true, fetches all pages (use sparingly — prefer single-page queries). */
     fetchAll?: boolean;
   }): Promise<PaginatedResponse<Card>> {
-    const { fetchAll = false, ...rest } = params ?? {};
+    const { fetchAll = false, all, ...rest } = params ?? {};
     const pageSize = rest.page_size ?? 100;
-    const merged = { page_size: pageSize, ...rest };
+    const merged = {
+      page_size: pageSize,
+      ...rest,
+      ...(all ? { all: "true" } : {}),
+    };
     const query =
       "?" +
       new URLSearchParams(
@@ -282,29 +288,30 @@ export const cardsApi = {
       await apiFetch<PaginatedResponse<Card> | Card[]>(`/api/cards${query}`),
     );
     if (!fetchAll) return first;
-    if (first.items.length >= first.total) return first;
 
     const allItems = [...first.items];
-    const totalPages = Math.ceil(first.total / pageSize);
-    for (let p = 2; p <= totalPages; p++) {
+    const effectivePageSize = first.page_size || pageSize;
+    let p = 2;
+
+    // Keep fetching until we have all items reported by total, or a short page
+    while (allItems.length < first.total) {
       const pageQuery =
         "?" +
         new URLSearchParams(
-          Object.entries({ ...merged, page: p })
+          Object.entries({ ...merged, page: p, page_size: effectivePageSize })
             .filter(([, v]) => v !== undefined)
             .map(([k, v]) => [k, String(v)]),
         ).toString();
       const page = normalizePaginated(
         await apiFetch<PaginatedResponse<Card> | Card[]>(`/api/cards${pageQuery}`),
       );
-      if (page.items.length > 0) {
-        allItems.push(...page.items);
-      } else {
-        break;
-      }
+      if (page.items.length === 0) break;
+      allItems.push(...page.items);
+      if (page.items.length < effectivePageSize) break;
+      p += 1;
     }
 
-    return { ...first, items: allItems, page: 1, page_size: allItems.length };
+    return { ...first, items: allItems, total: Math.max(first.total, allItems.length), page: 1, page_size: allItems.length };
   },
 
   get(cardId: string): Promise<Card> {

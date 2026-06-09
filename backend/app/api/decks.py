@@ -52,6 +52,19 @@ def _deck_to_out(deck: Deck) -> DeckOut:
     )
 
 
+def _dominant_faction(entries: list, cards_map: dict[str, Card]) -> tuple[str, int, dict[str, int]]:
+    """主势力 = 卡组中出现张数最多的势力（按 quantity 计）。"""
+    faction_counts: Counter[str] = Counter()
+    for e in entries:
+        card = cards_map.get(e.card_id)
+        if card and card.faction_code:
+            faction_counts[card.faction_code] += e.quantity
+    if not faction_counts:
+        return "key_class", 0, {}
+    code, count = faction_counts.most_common(1)[0]
+    return code, count, dict(faction_counts)
+
+
 async def _validate_deck_entries(
     db: AsyncSession,
     user: User,
@@ -59,8 +72,9 @@ async def _validate_deck_entries(
     entries: list,
     *,
     strict: bool = False,
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], str | None]:
     errors: list[str] = []
+    dominant_faction: str | None = None
     total = sum(e.quantity for e in entries)
 
     if strict and total != MAX_DECK_SIZE:
@@ -76,7 +90,7 @@ async def _validate_deck_entries(
     if card_ids:
         cards_result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
         cards_map = {c.id: c for c in cards_result.scalars().all()}
-        faction_count = 0
+        dominant_faction, dominant_count, _ = _dominant_faction(entries, cards_map)
         unit_count = 0
         effect_count = 0
         counter_count = 0
@@ -93,11 +107,11 @@ async def _validate_deck_entries(
                     effect_count += e.quantity
                 elif ct in COUNTER_TYPES:
                     counter_count += e.quantity
-            if card.faction_code == faction_code:
-                faction_count += e.quantity
 
-        if strict and faction_count < MIN_FACTION_CARDS:
-            errors.append(f"主势力卡牌至少需要 {MIN_FACTION_CARDS} 张，当前 {faction_count} 张")
+        if strict and dominant_count < MIN_FACTION_CARDS:
+            errors.append(
+                f"主势力（{dominant_faction}）至少需要 {MIN_FACTION_CARDS} 张，当前 {dominant_count} 张"
+            )
         if strict and unit_count > UNIT_MAX:
             errors.append(f"生物牌最多 {UNIT_MAX} 张，当前 {unit_count} 张")
         if strict and effect_count > EFFECT_MAX:
@@ -116,7 +130,7 @@ async def _validate_deck_entries(
             if cid not in owned_ids:
                 errors.append(f"卡牌 {cid} 不在收藏中")
 
-    return len(errors) == 0, errors
+    return len(errors) == 0, errors, dominant_faction
 
 
 @router.post("", response_model=DeckOut, status_code=201)
@@ -125,17 +139,20 @@ async def create_deck(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DeckOut:
+    resolved_faction = body.faction_code
     if body.cards:
-        valid, errors = await _validate_deck_entries(
+        valid, errors, dominant = await _validate_deck_entries(
             db, user, body.faction_code, body.cards, strict=True
         )
         if not valid:
             raise HTTPException(status_code=400, detail="; ".join(errors))
+        if dominant:
+            resolved_faction = dominant
 
     deck = Deck(
         user_id=user.id,
         name=body.name,
-        faction_code=body.faction_code,
+        faction_code=resolved_faction,
         ally_faction_code=body.ally_faction_code,
     )
     db.add(deck)
@@ -210,10 +227,10 @@ async def validate_deck(
     if not deck or deck.user_id != user.id:
         raise HTTPException(status_code=404, detail="书包不存在")
 
-    valid, errors = await _validate_deck_entries(
+    valid, errors, dominant = await _validate_deck_entries(
         db, user, deck.faction_code, deck.entries, strict=True
     )
-    return {"valid": valid, "errors": errors}
+    return {"valid": valid, "errors": errors, "dominant_faction": dominant}
 
 
 @router.put("/{deck_id}", response_model=DeckOut)
@@ -239,11 +256,15 @@ async def update_deck(
         deck.ally_faction_code = body.ally_faction_code
 
     if body.cards is not None:
-        valid, errors = await _validate_deck_entries(
+        valid, errors, dominant = await _validate_deck_entries(
             db, user, body.faction_code or deck.faction_code, body.cards, strict=True
         )
         if not valid:
             raise HTTPException(status_code=400, detail="; ".join(errors))
+        if dominant:
+            deck.faction_code = dominant
+        elif body.faction_code is not None:
+            deck.faction_code = body.faction_code
 
         stmt_del = delete(DeckCard).where(DeckCard.deck_id == deck.id)
         await db.execute(stmt_del)

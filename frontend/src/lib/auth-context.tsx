@@ -25,6 +25,7 @@ interface AuthContextType {
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  patchUser: (patch: Partial<User>) => void;
   userInk: number | null;
   setUserInk: (ink: number | null) => void;
 }
@@ -199,6 +200,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const patchUser = useCallback((patch: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -208,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         refreshUser,
+        patchUser,
         userInk,
         setUserInk,
       }}

@@ -128,7 +128,7 @@ export default function CollectionPage() {
     setFetchError(null);
     try {
       const [allCardsRes, ownedRes] = await Promise.all([
-        cardsApi.list({ page: 1, page_size: 500, fetchAll: true }),
+        cardsApi.list({ all: true, fetchAll: true }),
         collectionApi.list(),
       ]);
 

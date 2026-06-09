@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
+import { UserAvatar } from "@/components/game/user-avatar";
+import { useAudioStore } from "@/store/useAudioStore";
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -36,6 +38,15 @@ export default function SettingsPage() {
       setEmailSubmitting(false);
     }
   };
+
+  const bgmEnabled = useAudioStore((s) => s.bgmEnabled);
+  const bgmVolume = useAudioStore((s) => s.bgmVolume);
+  const sfxEnabled = useAudioStore((s) => s.sfxEnabled);
+  const sfxVolume = useAudioStore((s) => s.sfxVolume);
+  const setBgmEnabled = useAudioStore((s) => s.setBgmEnabled);
+  const setBgmVolume = useAudioStore((s) => s.setBgmVolume);
+  const setSfxEnabled = useAudioStore((s) => s.setSfxEnabled);
+  const setSfxVolume = useAudioStore((s) => s.setSfxVolume);
 
   const handleUpdatePassword = async () => {
     if (!curPwd || !newPwd) { toast.error("请填写所有字段"); return; }
@@ -72,14 +83,19 @@ export default function SettingsPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               <div
-                className="w-16 h-16 rounded-full bg-zinc-700 flex items-center justify-center text-2xl font-bold text-zinc-400 cursor-pointer hover:ring-2 ring-purple-500 transition-all overflow-hidden"
+                className="cursor-pointer hover:ring-2 ring-purple-500 rounded-full transition-all"
                 onClick={() => setAvatarDialog(true)}
               >
-                {user?.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.avatar_url} alt="" className="w-full h-full object-cover" />
+                {user ? (
+                  <UserAvatar
+                    username={user.username}
+                    avatarUrl={user.avatar_url}
+                    className="w-16 h-16 text-2xl"
+                  />
                 ) : (
-                  <Camera className="w-6 h-6" />
+                  <div className="w-16 h-16 rounded-full bg-zinc-700 flex items-center justify-center">
+                    <Camera className="w-6 h-6 text-zinc-400" />
+                  </div>
                 )}
               </div>
               <div>
@@ -146,6 +162,87 @@ export default function SettingsPage() {
             <Button onClick={handleUpdatePassword} disabled={pwdSubmitting}>
               {pwdSubmitting ? "提交中..." : "修改密码"}
             </Button>
+          </div>
+        </motion.section>
+        {/* Audio settings */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="rounded-2xl border border-zinc-700/50 bg-zinc-900/60 p-6 space-y-4"
+        >
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            🎵 音效设置
+          </h2>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-300">背景音乐</span>
+              <button
+                type="button"
+                onClick={() => setBgmEnabled(!bgmEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  bgmEnabled ? "bg-purple-600" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    bgmEnabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            {bgmEnabled && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-zinc-500 w-8 text-right">音量</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={bgmVolume}
+                  onChange={(e) => setBgmVolume(parseFloat(e.target.value))}
+                  className="flex-1 accent-purple-500"
+                />
+                <span className="text-xs text-zinc-400 w-8">
+                  {Math.round(bgmVolume * 100)}%
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-300">音效</span>
+              <button
+                type="button"
+                onClick={() => setSfxEnabled(!sfxEnabled)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  sfxEnabled ? "bg-purple-600" : "bg-zinc-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    sfxEnabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
+            {sfxEnabled && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-zinc-500 w-8 text-right">音量</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={sfxVolume}
+                  onChange={(e) => setSfxVolume(parseFloat(e.target.value))}
+                  className="flex-1 accent-purple-500"
+                />
+                <span className="text-xs text-zinc-400 w-8">
+                  {Math.round(sfxVolume * 100)}%
+                </span>
+              </div>
+            )}
           </div>
         </motion.section>
       </div>

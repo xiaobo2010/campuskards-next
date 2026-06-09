@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { userApi } from "@/lib/api";
-import { resolveAvatarUrl } from "@/lib/avatar-url";
+import { resolveAvatarUrl, withAvatarCacheBust } from "@/lib/avatar-url";
 
 interface AvatarUploadDialogProps {
   open: boolean;
@@ -29,7 +29,7 @@ export default function AvatarUploadDialog({
   currentAvatar,
   username,
 }: AvatarUploadDialogProps) {
-  const { refreshUser } = useAuth();
+  const { refreshUser, patchUser } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -61,8 +61,11 @@ export default function AvatarUploadDialog({
 
     setUploading(true);
     try {
-      await userApi.uploadAvatar(selectedFile);
+      const { avatar_url } = await userApi.uploadAvatar(selectedFile);
+      const busted = withAvatarCacheBust(avatar_url);
+      if (busted) patchUser({ avatar_url: busted });
       await refreshUser();
+      if (busted) patchUser({ avatar_url: busted });
       toast.success("头像更新成功！");
       handleClose();
     } catch (error) {

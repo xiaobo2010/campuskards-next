@@ -15,43 +15,76 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _column_names(table: str) -> set[str]:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    return {col["name"] for col in inspector.get_columns(table)}
+
+
+def _index_names(table: str) -> set[str]:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    return {idx["name"] for idx in inspector.get_indexes(table)}
+
+
+def _fk_names(table: str) -> set[str]:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    return {fk["name"] for fk in inspector.get_foreign_keys(table)}
+
+
 def upgrade() -> None:
     op.alter_column("factions", "code", type_=sa.String(32), existing_type=sa.String(16))
     op.alter_column("decks", "ally_faction_code", type_=sa.String(32), existing_type=sa.String(16))
     op.alter_column("users", "reset_key", type_=sa.String(255), existing_type=sa.String(64))
 
-    op.add_column("users", sa.Column("newbie_claimed", sa.Boolean(), nullable=False, server_default=sa.text("false")))
+    if "newbie_claimed" not in _column_names("users"):
+        op.add_column(
+            "users",
+            sa.Column("newbie_claimed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        )
 
-    op.create_index(op.f("ix_users_role"), "users", ["role"])
+    if "ix_users_role" not in _index_names("users"):
+        op.create_index(op.f("ix_users_role"), "users", ["role"])
 
-    op.create_foreign_key(
-        "fk_matches_winner_id_users",
-        "matches", "users",
-        ["winner_id"], ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_matches_p1_deck_id_decks",
-        "matches", "decks",
-        ["p1_deck_id"], ["id"],
-        ondelete="SET NULL",
-    )
-    op.create_foreign_key(
-        "fk_matches_p2_deck_id_decks",
-        "matches", "decks",
-        ["p2_deck_id"], ["id"],
-        ondelete="SET NULL",
-    )
+    match_fks = _fk_names("matches")
+    if "fk_matches_winner_id_users" not in match_fks:
+        op.create_foreign_key(
+            "fk_matches_winner_id_users",
+            "matches", "users",
+            ["winner_id"], ["id"],
+            ondelete="SET NULL",
+        )
+    if "fk_matches_p1_deck_id_decks" not in match_fks:
+        op.create_foreign_key(
+            "fk_matches_p1_deck_id_decks",
+            "matches", "decks",
+            ["p1_deck_id"], ["id"],
+            ondelete="SET NULL",
+        )
+    if "fk_matches_p2_deck_id_decks" not in match_fks:
+        op.create_foreign_key(
+            "fk_matches_p2_deck_id_decks",
+            "matches", "decks",
+            ["p2_deck_id"], ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_matches_p2_deck_id_decks", "matches", type_="foreignkey")
-    op.drop_constraint("fk_matches_p1_deck_id_decks", "matches", type_="foreignkey")
-    op.drop_constraint("fk_matches_winner_id_users", "matches", type_="foreignkey")
+    match_fks = _fk_names("matches")
+    if "fk_matches_p2_deck_id_decks" in match_fks:
+        op.drop_constraint("fk_matches_p2_deck_id_decks", "matches", type_="foreignkey")
+    if "fk_matches_p1_deck_id_decks" in match_fks:
+        op.drop_constraint("fk_matches_p1_deck_id_decks", "matches", type_="foreignkey")
+    if "fk_matches_winner_id_users" in match_fks:
+        op.drop_constraint("fk_matches_winner_id_users", "matches", type_="foreignkey")
 
-    op.drop_index(op.f("ix_users_role"), table_name="users")
+    if "ix_users_role" in _index_names("users"):
+        op.drop_index(op.f("ix_users_role"), table_name="users")
 
-    op.drop_column("users", "newbie_claimed")
+    if "newbie_claimed" in _column_names("users"):
+        op.drop_column("users", "newbie_claimed")
 
     op.alter_column("users", "reset_key", type_=sa.String(64), existing_type=sa.String(255))
     op.alter_column("decks", "ally_faction_code", type_=sa.String(16), existing_type=sa.String(32))

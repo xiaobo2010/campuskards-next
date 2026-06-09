@@ -27,6 +27,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import type { Card } from "@/types";
+import { formatFaction } from "@/lib/faction-labels";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,12 @@ export interface DeckDropZoneProps {
   limits: { unit: number; effect: number; counter: number };
   /** 当前各类别已选数量 */
   counts: { unit: number; effect: number; counter: number };
+  /** 主势力（卡组中张数最多的势力） */
+  mainFaction?: { code: string; count: number } | null;
+  /** 主势力最少张数（默认 20） */
+  minMainFaction?: number;
+  /** 单卡最多张数（默认 3） */
+  maxCopiesPerCard?: number;
   /** 卡牌变化回调（增/删/重排） */
   onChange: (newSelectedIds: string[]) => void;
   /** 可选：渲染在 DndContext 内的子元素（如卡牌库），用于共享拖放上下文 */
@@ -266,6 +273,9 @@ function DeckDropZone({
   maxCards,
   limits,
   counts,
+  mainFaction = null,
+  minMainFaction = 20,
+  maxCopiesPerCard = MAX_COPIES_PER_CARD,
   onChange,
   children,
 }: DeckDropZoneProps) {
@@ -290,8 +300,8 @@ function DeckDropZone({
       }
 
       const copyCount = selectedCardIds.filter((id) => id === cardId).length;
-      if (copyCount >= MAX_COPIES_PER_CARD) {
-        toast.error(`「${card.name}」已达 ${MAX_COPIES_PER_CARD} 张上限`);
+      if (copyCount >= maxCopiesPerCard) {
+        toast.error(`「${card.name}」已达 ${maxCopiesPerCard} 张上限`);
         return false;
       }
 
@@ -312,7 +322,7 @@ function DeckDropZone({
 
       return true;
     },
-    [selectedCardIds, cardMap, maxCards, limits, counts]
+    [selectedCardIds, cardMap, maxCards, limits, counts, maxCopiesPerCard]
   );
 
   // Handle drag start
@@ -434,20 +444,27 @@ function DeckDropZone({
           </div>
         </div>
 
-        {/* Deck stats bar */}
-        <div className="flex items-center gap-4 px-2 py-1 text-xs text-muted-foreground">
+        {/* Deck stats bar — 建组规则一览 */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-1 text-xs text-muted-foreground">
           <span>
-            {selectedCardIds.length}/{maxCards} 张
+            总数 {selectedCardIds.length}/{maxCards}
           </span>
           <span>
-            单位 {counts.unit}/{limits.unit}
+            生物 {counts.unit}/{limits.unit}
           </span>
           <span>
             效果 {counts.effect}/{limits.effect}
           </span>
           <span>
-            反制 {counts.counter}/{limits.counter}
+            反击 {counts.counter}/{limits.counter}
           </span>
+          <span className={mainFaction && mainFaction.count >= minMainFaction ? "text-emerald-400" : ""}>
+            主势力{" "}
+            {mainFaction
+              ? `${formatFaction(mainFaction.code)} ${mainFaction.count}/${minMainFaction}`
+              : `—/${minMainFaction}`}
+          </span>
+          <span>单卡 ≤{maxCopiesPerCard} 张</span>
         </div>
       </div>
 

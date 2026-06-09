@@ -130,7 +130,7 @@ f697305bb47d (initial)
   → b4c5d6e7f8a9
   → 002_upgrade_system
   → c5d6e7f8a9b0
-  → d6e7f8a9b0c1 (head)
+  → d6e7f8a9b0c1 (head, 含 token_version + newbie_claimed 兜底)
 ```
 
 ## Next.js Standalone 模式
