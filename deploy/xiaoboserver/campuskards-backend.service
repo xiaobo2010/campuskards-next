@@ -1,0 +1,30 @@
+[Unit]
+Description=CampusKards Backend (FastAPI)
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=ck
+Group=ck
+WorkingDirectory=/ssd/7a40/campuskards/backend
+
+EnvironmentFile=/ssd/7a40/campuskards/deploy/xiaoboserver/.env
+
+ExecStart=/ssd/7a40/campuskards/backend/.venv/bin/uvicorn app.main:app \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --workers 4 \
+  --log-level info
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
