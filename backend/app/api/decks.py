@@ -16,6 +16,13 @@ router = APIRouter(prefix="/api/decks", tags=["decks"])
 MAX_DECK_SIZE = 30
 MIN_FACTION_CARDS = 20
 MAX_COPIES = 3
+UNIT_MAX = 22
+EFFECT_MAX = 20
+COUNTER_MAX = 10
+
+UNIT_TYPES = frozenset({"character", "unit"})
+SPELL_TYPES = frozenset({"command", "event", "buff"})
+COUNTER_TYPES = frozenset({"snitch", "counter"})
 
 
 async def _load_deck(db: AsyncSession, deck_id: uuid.UUID) -> Deck | None:
@@ -70,16 +77,33 @@ async def _validate_deck_entries(
         cards_result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
         cards_map = {c.id: c for c in cards_result.scalars().all()}
         faction_count = 0
+        unit_count = 0
+        effect_count = 0
+        counter_count = 0
         for e in entries:
             card = cards_map.get(e.card_id)
             if not card:
                 errors.append(f"卡牌 {e.card_id} 不存在")
                 continue
+            if strict:
+                ct = card.card_type or ""
+                if ct in UNIT_TYPES:
+                    unit_count += e.quantity
+                elif ct in SPELL_TYPES:
+                    effect_count += e.quantity
+                elif ct in COUNTER_TYPES:
+                    counter_count += e.quantity
             if card.faction_code == faction_code:
                 faction_count += e.quantity
 
         if strict and faction_count < MIN_FACTION_CARDS:
             errors.append(f"主势力卡牌至少需要 {MIN_FACTION_CARDS} 张，当前 {faction_count} 张")
+        if strict and unit_count > UNIT_MAX:
+            errors.append(f"生物牌最多 {UNIT_MAX} 张，当前 {unit_count} 张")
+        if strict and effect_count > EFFECT_MAX:
+            errors.append(f"效果牌最多 {EFFECT_MAX} 张，当前 {effect_count} 张")
+        if strict and counter_count > COUNTER_MAX:
+            errors.append(f"反击牌最多 {COUNTER_MAX} 张，当前 {counter_count} 张")
 
         owned_result = await db.execute(
             select(UserCard.card_id).where(
@@ -103,7 +127,7 @@ async def create_deck(
 ) -> DeckOut:
     if body.cards:
         valid, errors = await _validate_deck_entries(
-            db, user, body.faction_code, body.cards, strict=False
+            db, user, body.faction_code, body.cards, strict=True
         )
         if not valid:
             raise HTTPException(status_code=400, detail="; ".join(errors))
@@ -216,7 +240,7 @@ async def update_deck(
 
     if body.cards is not None:
         valid, errors = await _validate_deck_entries(
-            db, user, body.faction_code or deck.faction_code, body.cards, strict=False
+            db, user, body.faction_code or deck.faction_code, body.cards, strict=True
         )
         if not valid:
             raise HTTPException(status_code=400, detail="; ".join(errors))

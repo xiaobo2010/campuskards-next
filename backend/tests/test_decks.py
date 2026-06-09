@@ -40,7 +40,7 @@ async def test_create_deck(client: AsyncClient):
         "faction_code": "key_class",
         "cards": [{"card_id": "d1", "quantity": 3}],
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     data = resp.json()
     assert data["name"] == "测试卡组"
     assert data["faction_code"] == "key_class"

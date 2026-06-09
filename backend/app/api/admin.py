@@ -3,8 +3,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.orm import selectinload
+from pathlib import Path
+
+from scripts.seed_cards import seed as seed_cards
 
 from app.core.database import get_db
 from app.api.auth import _get_current_user
@@ -301,3 +303,32 @@ async def set_user_reset_key(
     await db.refresh(user)
 
     return {"message": "重置密钥已更新", "user_id": str(user.id)}
+
+
+@router.post("/cards/reseed")
+async def admin_reseed_cards(
+    db: AsyncSession = Depends(get_db),
+):
+    # Resolve card-data.json relative to backend directory
+    # Try several possible locations
+    possible_paths = [
+        Path("scripts/card-data.json"),
+        Path(__file__).resolve().parent.parent.parent / "scripts" / "card-data.json",
+        Path("card-data.json"),
+    ]
+    json_path = None
+    for p in possible_paths:
+        if p.exists():
+            json_path = str(p.resolve())
+            break
+
+    if not json_path:
+        raise HTTPException(status_code=500, detail="未找到 card-data.json 文件")
+
+    result = await seed_cards(db=db, json_path=json_path)
+    return {
+        "message": f"导入完成：新增 {result['factions_inserted']} 个势力，"
+                   f"新增 {result['cards_inserted']} 张卡牌，"
+                   f"更新 {result['cards_updated']} 张卡牌",
+        "total_cards": result["total_cards"],
+    }

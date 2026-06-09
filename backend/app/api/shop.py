@@ -83,15 +83,6 @@ class PackDef:
 
 
 PACKS: dict[str, PackDef] = {
-    "newbie": PackDef(
-        id="newbie",
-        name="新手卡包",
-        description="注册即送的 30 张卡牌，助你踏上校园对决之旅。",
-        price_ink=0,
-        cards_count=30,
-        rolls=[],
-        one_time=True,
-    ),
     "basic": PackDef(
         id="basic",
         name="基础卡包",
@@ -334,7 +325,7 @@ async def _build_pack_response(
         pack_id=pack_id,
         cards=drawn_items,
         new=new_ids,
-        fragments=fragment_drops,
+        fragments={},
         remaining_ink=user.ink,
         remaining_elo=user.elo,
     )
@@ -370,7 +361,7 @@ def _pack_cost(pack: PackDef, quantity: int) -> tuple[int, int]:
 
 
 @router.get("/packs", response_model=list[PackOut])
-async def list_packs(user: User = Depends(_get_current_user)) -> list[PackOut]:
+async def list_packs() -> list[PackOut]:
     return [
         PackOut(
             id=p.id,
@@ -381,10 +372,8 @@ async def list_packs(user: User = Depends(_get_current_user)) -> list[PackOut]:
             cost_type=p.cost_type,
             price_elo=p.price_elo,
             min_elo=p.min_elo,
-            one_time=p.one_time,
         )
         for p in PACKS.values()
-        if not (p.one_time and p.id == "newbie" and user.newbie_claimed)
     ]
 
 
@@ -435,9 +424,6 @@ async def open_pack_by_id(
     if not pack:
         raise HTTPException(status_code=404, detail="卡包不存在")
 
-    if pack.one_time and pack_id == "newbie" and user.newbie_claimed:
-        raise HTTPException(status_code=400, detail="新手卡包已领取")
-
     ink_cost, elo_cost = _pack_cost(pack, body.quantity)
 
     if pack.cost_type == "elo":
@@ -450,9 +436,6 @@ async def open_pack_by_id(
         if user.ink < ink_cost:
             raise HTTPException(status_code=400, detail="墨水不足")
         user.ink -= ink_cost
-
-    if pack_id == "newbie":
-        user.newbie_claimed = True
 
     result = await db.execute(select(Card))
     all_cards = list(result.scalars().all())

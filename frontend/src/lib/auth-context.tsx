@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { useRouter } from "next/navigation";
 import { authApi } from "./api";
+import { API_BASE } from "./config";
 import type { User } from "@/types";
 
 interface AuthTokens {
@@ -41,8 +42,7 @@ async function persistSession(
   remember: boolean,
 ): Promise<void> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    await fetch(`${baseUrl}/api/auth/set-cookie`, {
+    await fetch(`${API_BASE}/api/auth/set-cookie`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

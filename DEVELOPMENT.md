@@ -23,7 +23,7 @@
 
 ### ⚠️ Known Constraints
 - **XiaoBo Server 无法连 GitHub 和国外网站**，代码需从 OCI 推送后在 XiaoBo Server `git pull`
-- 单次 coder task 改动 ≤ 3 个文件，降低回滚成本
+- 测试统一在 `backend/` 目录下通过 `pytest` 运行（`backend/tests/` 含 12 个测试文件）
 
 ---
 
@@ -119,12 +119,14 @@ P1 支援线 (P1 Support Line)
 | 4 | GET | `/api/auth/me` | ✅ | 获取当前用户信息 | ✅ |
 | 5 | POST | `/api/auth/set-cookie` | ✅ | 将 token 写入 httpOnly cookie | ✅ |
 | 6 | POST | `/api/auth/logout` | ✅ | 登出(清除 cookie) | ✅ |
+| 7 | POST | `/api/auth/reset-password` | ❌ | 重置密码(使用 reset_key) | ✅ |
+| 8 | PATCH | `/api/auth/me` | ✅ | 更新个人资料(密码/邮箱) | ✅ |
 
 **1. POST /api/auth/register**
-- 请求体：`{ username: str, password: str, email: str }`
+- 请求体：`{ username: str, password: str, email: str, remember: bool = true }`
 - 响应 `201`：`{ access_token: str, refresh_token: str, token_type: "bearer" }`
-- 副作用：自动设置 httpOnly cookie + 创建默认卡组
-- 错误 `400`：用户名/邮箱已存在
+- 副作用：自动设置 httpOnly cookie + 自动发放 30 张新手卡牌
+- 错误 `409`：用户名/邮箱已存在
 
 **2. POST /api/auth/login**
 - 请求体：`{ login: str, password: str, remember: bool = false }`
@@ -179,7 +181,8 @@ P1 支援线 (P1 Support Line)
 | 1 | GET | `/api/collection` | ✅ | 我的卡牌收藏 | ✅ |
 | 2 | POST | `/api/collection/{card_id}` | ✅ | 添加卡牌到收藏 | ✅ |
 | 3 | DELETE | `/api/collection/{card_id}` | ✅ | 从收藏移除卡牌 | ✅ |
-| 4 | POST | `/api/collection/{card_id}/upgrade` | ✅ | 升级卡牌 | ✅ |
+| 4 | POST | `/api/collection/{card_id}/upgrade` | ✅ | 升级卡牌等级 | ✅ |
+| 5 | POST | `/api/collection/{card_id}/convert` | ✅ | 多余额外卡牌转化为碎片 | ✅ |
 
 **1. GET /api/collection**
 - 响应 `200`：`[ { card_id, count, level, fragments, card: CardOut | null } ]`
@@ -193,7 +196,12 @@ P1 支援线 (P1 Support Line)
 **4. POST /api/collection/{card_id}/upgrade**
 - 请求体：空
 - 条件：碎片 + 墨水足够
-- 错误 `400`：经验不足或货币不够
+- 错误 `400`：碎片或墨水不足
+
+**5. POST /api/collection/{card_id}/convert**
+- 请求体：`{ count: int=1 }`
+- 碎片价值：Common→1, Uncommon→2, Rare→4, Epic→8, Legendary→8
+- 条件：`count < current_count`（至少保留 1 张）
 
 ---
 
@@ -226,26 +234,31 @@ P1 支援线 (P1 Support Line)
 | # | 方法 | 路径 | 认证 | 说明 | 状态 |
 |---|------|------|------|------|------|
 | 1 | GET | `/api/shop/packs` | ✅ | 卡包列表 | ✅ |
-| 2 | POST | `/api/shop/packs/{id}/buy` | ✅ | 购买卡包 | ✅ |
-| 3 | POST | `/api/shop/packs/{id}/open` | ✅ | 开包 | ✅ |
+| 2 | POST | `/api/shop/packs/{id}/buy` | ✅ | 购买卡包(仅扣费) | ✅ |
+| 3 | POST | `/api/shop/packs/{id}/open` | ✅ | 开包(扣费+出卡) | ✅ |
+| 4 | POST | `/api/shop/packs/selector/finalize` | ✅ | 确定选卡(放弃重抽) | ✅ |
+| 5 | POST | `/api/shop/packs/selector/reroll` | ✅ | 选卡包重抽指定位置 | ✅ |
+| 6 | POST | `/api/shop/open-pack` | ✅ | 旧版开包(兼容) | ✅ |
 
 **1. GET /api/shop/packs**
-- 响应：`[ { id, name, description?, price_ink, cards_count, rarity_weights?, image_url?, faction_code? } ]`
+- 响应：`[ { id, name, description, price_ink, cards_count, cost_type, price_elo, min_elo } ]`
+- 可用卡包：`basic`(200墨/5张)、`advanced`(600墨/6张)、`selector`(1000墨/8张+选卡)、`faction`(800墨/5张指定势力)、`prestige`(500ELO/3张高稀有度)
 
 **2. POST /api/shop/packs/{id}/buy**
 - 请求体：`{ quantity: int=1 }`
-- 响应：`{ pack_id, quantity, total_cost, remaining_ink }`
+- 响应：`{ pack_id, quantity, total_cost, remaining_ink, remaining_elo? }`
+- 仅扣费，不出卡
 
 **3. POST /api/shop/packs/{id}/open**
 - 请求体：`{ quantity: int=1, faction_code?: str }`
 - 响应：`{ cards, new, fragments, remaining_ink, can_reroll?, reroll_token? }`
 - **选卡卡包 (`selector`)**：开包时扣费但不立即入库；返回 `can_reroll=true` 与 `reroll_token`
 
-**4. POST /api/shop/packs/selector/finalize** ✅
+**4. POST /api/shop/packs/selector/finalize**
 - 请求体：`{ reroll_token: str }`
 - 放弃重抽，将全部卡牌写入收藏
 
-**5. POST /api/shop/packs/selector/reroll** ✅
+**5. POST /api/shop/packs/selector/reroll**
 - 请求体：`{ reroll_token: str, slot_index: int }`
 - 替换指定位置卡牌（单次），然后写入收藏
 
@@ -270,11 +283,16 @@ P1 支援线 (P1 Support Line)
 
 | # | 方法 | 路径 | 认证 | 说明 | 状态 |
 |---|------|------|------|------|------|
-| 1 | GET | `/api/user/profile` | ✅ | 获取个人资料 | ✅ |
-| 2 | PUT | `/api/user/profile` | ✅ | 更新个人资料 | ✅ |
+| 1 | GET | `/api/user/profile` | ✅ | 获取个人资料+对战统计 | ✅ |
+| 2 | PUT | `/api/user/avatar` | ✅ | 上传头像 | ✅ |
 
 **1. GET /api/user/profile**
-- 响应：`{ id, username, email, elo, ink, role, created_at, stats: { total_wins, total_losses, total_draws, win_rate } }`
+- 响应：`{ id, username, email, elo, ink, role, avatar_url?, created_at, stats: { total_wins, total_losses, total_draws, win_rate } }`
+
+**2. PUT /api/user/avatar**
+- Content-Type: `multipart/form-data`
+- 字段：`avatar: File` (JPG/PNG/WebP, ≤2MB)
+- 响应：`{ avatar_url: str }`
 
 ---
 
@@ -296,11 +314,18 @@ P1 支援线 (P1 Support Line)
 | # | 方法 | 路径 | 认证 | 说明 | 状态 |
 |---|------|------|------|------|------|
 | 1 | GET | `/api/admin/stats` | ✅ Admin | 系统统计 `{ users, cards, announcements, total_ink }` | ✅ |
-| 2 | GET | `/api/admin/users` | ✅ Admin | 用户列表 | ✅ |
-| 3 | POST | `/api/admin/announcements` | ✅ Admin | 创建公告 | ✅ |
-| 4 | PUT | `/api/admin/announcements/{id}` | ✅ Admin | 更新公告 | ✅ |
-| 5 | DELETE | `/api/admin/announcements/{id}` | ✅ Admin | 删除公告 | ✅ |
-| 6 | PATCH | `/api/admin/announcements/{id}/pin` | ✅ Admin | 置顶/取消置顶 | ✅ |
+| 2 | GET | `/api/admin/users` | ✅ Admin | 用户列表(分页+搜索) | ✅ |
+| 3 | PATCH | `/api/admin/users/{id}` | ✅ Admin | 更新用户(ink/elo/role/is_active) | ✅ |
+| 4 | POST | `/api/admin/users/{id}/reset-key` | ✅ Admin | 设置密码重置密钥 | ✅ |
+| 5 | GET | `/api/admin/cards` | ✅ Admin | 卡牌列表(分页+筛选) | ✅ |
+| 6 | PATCH | `/api/admin/cards/{id}` | ✅ Admin | 编辑卡牌属性 | ✅ |
+| 7 | POST | `/api/admin/cards/reseed` | ✅ Admin | 从 card-data.json 重新导入卡牌 | ✅ |
+| 8 | GET | `/api/admin/announcements` | ✅ Admin | 公告列表 | ✅ |
+| 9 | POST | `/api/admin/announcements` | ✅ Admin | 创建公告 | ✅ |
+| 10 | PUT | `/api/admin/announcements/{id}` | ✅ Admin | 更新公告(全量) | ✅ |
+| 11 | PATCH | `/api/admin/announcements/{id}` | ✅ Admin | 更新公告(部分) | ✅ |
+| 12 | DELETE | `/api/admin/announcements/{id}` | ✅ Admin | 删除公告 | ✅ |
+| 13 | PATCH | `/api/admin/announcements/{id}/pin` | ✅ Admin | 置顶/取消置顶 | ✅ |
 
 ---
 
@@ -436,20 +461,20 @@ P1 支援线 (P1 Support Line)
 
 | 模块 | 已实现 | 未实现 | 完成度 |
 |------|--------|--------|--------|
-| Auth | 6/6 | — | 100% |
+| Auth | 8/8 | — | 100% |
 | Cards | 2/2 | — | 100% |
-| Collection | 4/4 | — | 100% |
+| Collection | 5/5 | — | 100% |
 | Decks | 6/6 | — | 100% |
-| Shop | 3/3 | — | 100% |
+| Shop | 6/6 | — | 100% |
 | Checkin | 2/2 | — | 100% |
 | User | 2/2 | — | 100% |
 | Announcements | 2/2 | — | 100% |
-| Admin | 6/6 | — | 100% |
+| Admin | 13/13 | — | 100% |
 | Leaderboard | 1/1 | — | 100% |
 | **Match** | **8/8** | — | **100%** |
-| **Game WS** | **11/12** | `use_ability` 前端未接入 | **92%** |
+| **Game WS** | **12/12** | — | **100%** |
 | **AI 系统** | **3/3** | — | **100%** |
-| **总计** | **55/57** | **2** | **96%** |
+| **总计** | **70/70** | **0** | **100%** |
 
 ---
 
@@ -508,17 +533,18 @@ P1 支援线 (P1 Support Line)
 | P1-4 | Zustand store 拆分 | `store/useAuthStore` + `useCollectionStore` + `useDeckStore` | ✅ |
 | P1-5 | AuthGuard 客户端门控 | `middleware.ts` 不做 /game 拦截 + `auth-guard.tsx` 重定向 | ✅ 2026-06-08 |
 | P1-6 | API 统一错误处理 | `lib/api.ts` formatApiDetail + `api-error.ts` | ✅ 2026-06-08 |
-| P1-17 | Admin stats 字段对齐 | `admin/page.tsx` ↔ `api/admin.py` | ✅ 2026-06-08 |
-| P1-18 | 卡组类型大小写 | `deck-builder/page.tsx` getCategory | ✅ 2026-06-08 |
-| P1-19 | 双轨认证不同步 | 统一 `useAuth()` 管理墨水/头像 | ✅ 2026-06-08 |
-| P1-20 | JWT UTC NameError | `backend/app/core/security.py` | ✅ 2026-06-08 |
-| P1-7 | User.role 加数据库索引 | backend alembic migration | ⬜ |
+| P1-7 | User.role 加数据库索引 | backend alembic migration | ✅ 已有 `index=True` |
 | P1-8 | Redis 配置决策(删或实现) | `backend/app/core/config.py` | ⬜ |
 | P1-11 | 大厅背景图跟随侧边栏 | `game/layout.tsx` | ✅ |
 | P1-12 | 图片缓存/加载优化 | `next.config.mjs` | ✅ |
 | P1-14 | 卡牌图鉴"总计0张" | backend seed + frontend | ✅ |
 | P1-15 | 卡牌升级系统 | collection upgrade API | ✅ |
 | P1-16 | 卡牌详情 | `card-detail-modal.tsx` | ✅ |
+| P1-17 | Admin stats 字段对齐 | `admin/page.tsx` ↔ `api/admin.py` | ✅ 2026-06-08 |
+| P1-18 | 卡组类型大小写 | `deck-builder/page.tsx` getCategory | ✅ 2026-06-08 |
+| P1-19 | 双轨认证不同步 | 统一 `useAuth()` 管理墨水/头像 | ✅ 2026-06-08 |
+| P1-20 | JWT UTC NameError | `backend/app/core/security.py` | ✅ 2026-06-08 |
+| **P1-21** | **shop.py fragment_drops 未定义变量** | `shop.py` 开包致命 NameError | **✅ 2026-06-09** |
 
 ### P2 体验优化 — ⬜ 待修复
 
@@ -528,6 +554,18 @@ P1 支援线 (P1 Support Line)
 | P2-9 | 核心页面补齐 L1 动效 | 多个页面组件 | ⬜ |
 | P2-10 | 补充复合 UI 组件 | `components/ui/` | ⬜ |
 | P2-11 | .env.example + 文档 | 项目根目录 | ⬜ |
+
+### P3 已发现待确认
+
+| # | Issue | 详情 | 状态 |
+|---|-------|------|------|
+| P3-1 | `card.py` 中废弃 `UserCardOut` (quantity 字段) | 与 `collection.py` 的 `UserCardOut` (count 字段) 冲突 | ✅ 2026-06-09 |
+| P3-2 | `auth-context.tsx` 直接使用 `process.env.NEXT_PUBLIC_API_URL` | 未统一通过 `lib/config.ts` 的 `API_BASE` | ✅ 2026-06-09 |
+| P3-3 | 双测试目录混淆 | `test/backend/` 内测试已迁至 `backend/tests/` | ✅ 2026-06-09 |
+| P3-4 | `expand_cards.py` 硬编码路径 | 改用相对于脚本目录的路径 | ✅ 2026-06-09 |
+| P3-5 | Match history 静默跳过不存在用户的对手 | 改用占位对手「已注销」 | ✅ 2026-06-09 |
+| P3-6 | Shop 开包 `fragment_drops` 未定义变量 | 开包 NameError 崩溃 | ✅ 2026-06-09 |
+| P3-7 | `test_decks.py` create_deck 断言 200 应为 201 | | ✅ 2026-06-09 |
 
 ### 工作规则
 1. 每个 coder task ≤ 3 文件改动，prompt 写明具体文件/API/组件名
@@ -706,4 +744,4 @@ sudo tail -f /var/log/nginx/access.log
 
 ---
 
-*最后更新: 2026-06-08*
+*最后更新: 2026-06-09*

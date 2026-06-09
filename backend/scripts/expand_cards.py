@@ -1,10 +1,15 @@
 import json
 import random
 from collections import Counter
+from pathlib import Path
 
 random.seed(42)
 
-with open('backend/scripts/card-data.json', 'r', encoding='utf-8') as f:
+# Path relative to this script's directory
+DATA_DIR = Path(__file__).resolve().parent
+json_path = DATA_DIR / "card-data.json"
+
+with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 existing = data['cards']
@@ -517,7 +522,7 @@ for c in new_cards:
 
 # Save
 data['cards'] = new_cards
-with open('backend/scripts/card-data.json', 'w', encoding='utf-8') as f:
+with open(json_path, 'w', encoding='utf-8') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 
 print(f"\nSaved! Total cards: {len(new_cards)}")

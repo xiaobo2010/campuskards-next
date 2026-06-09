@@ -443,7 +443,6 @@ export interface PackDefinition {
   cost_type?: string;
   price_elo?: number;
   min_elo?: number;
-  one_time?: boolean;
 }
 
 export interface PackOpenCard {

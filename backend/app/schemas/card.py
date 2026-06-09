@@ -97,16 +97,6 @@ class CardListParams(BaseModel):
     page_size: int = Field(default=100, ge=1, le=500)
 
 
-# ─── Collection / UserCard schemas ───
-class UserCardOut(BaseModel):
-    """A card owned by a user."""
-    card_id: str
-    quantity: int = 1
-    card: CardOut | None = None
-
-    model_config = {"from_attributes": True}
-
-
 # ─── Deck schemas ───
 class DeckCardIn(BaseModel):
     card_id: str

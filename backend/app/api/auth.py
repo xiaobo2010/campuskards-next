@@ -1,3 +1,4 @@
+import random
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -15,7 +16,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models import User
+from app.models import Card, User, UserCard
 from app.schemas.admin import SetCookieRequest
 from app.schemas.auth import (
     LoginRequest,
@@ -83,6 +84,102 @@ def _clear_auth_cookies(response: Response) -> None:
     response.delete_cookie("campuskards_refresh_token", path="/")
 
 
+# ── 新建卡组构建常量 ──
+UNIT_TYPES = frozenset({"character", "unit"})
+SPELL_TYPES = frozenset({"command", "event", "buff"})
+COUNTER_TYPES = frozenset({"snitch", "counter"})
+CLASS_FACTIONS = ["key_class", "arts_class", "normal_class", "intl_class", "competition_class"]
+NEWBIE_DECK_SIZE = 30
+NEWBIE_MIN_MAIN_FACTION = 20
+NEWBIE_MAX_UNITS = 22
+NEWBIE_MAX_EFFECTS = 20
+NEWBIE_MAX_COUNTERS = 10
+
+
+async def _grant_newbie_deck(db: AsyncSession, user: User) -> None:
+    """为新手赠送 30 张可直接开始对战的卡牌。"""
+    from collections import Counter as ColCounter
+
+    result = await db.execute(select(Card).where(Card.is_token == False))
+    all_cards: list[Card] = list(result.scalars().all())
+
+    pool = [c for c in all_cards if c.rarity in ("common", "uncommon")]
+    if len(pool) < NEWBIE_DECK_SIZE:
+        pool = all_cards
+
+    card_map = {c.id: c for c in all_cards}
+    main_faction = random.choice(CLASS_FACTIONS)
+
+    def _type_set(card: Card) -> str:
+        ct = (card.card_type or "").lower()
+        if ct in UNIT_TYPES: return "unit"
+        if ct in SPELL_TYPES: return "effect"
+        if ct in COUNTER_TYPES: return "counter"
+        return "unit"
+
+    main_units = [c for c in pool if c.faction_code == main_faction and _type_set(c) == "unit"]
+    main_effects = [c for c in pool if c.faction_code == main_faction and _type_set(c) == "effect"]
+    main_counters = [c for c in pool if c.faction_code == main_faction and _type_set(c) == "counter"]
+    other_units = [c for c in pool if c.faction_code != main_faction and _type_set(c) == "unit"]
+    other_effects = [c for c in pool if c.faction_code != main_faction and _type_set(c) == "effect"]
+    other_counters = [c for c in pool if c.faction_code != main_faction and _type_set(c) == "counter"]
+
+    def _pick(src: list[Card], target: int, used: ColCounter) -> list[Card]:
+        random.shuffle(src)
+        picked: list[Card] = []
+        for card in src:
+            if len(picked) >= target:
+                break
+            if used[card.id] >= 3:
+                continue
+            picked.append(card)
+            used[card.id] += 1
+        return picked
+
+    used = ColCounter()
+    chosen: list[Card] = []
+
+    # Main faction: ~14 units, ~5 effects, ~1 counter
+    chosen += _pick(main_units, 14, used)
+    chosen += _pick(main_effects, 5, used)
+    chosen += _pick(main_counters, 1, used)
+    # Other factions: ~4 units, ~4 effects, ~2 counters
+    chosen += _pick(other_units, 4, used)
+    chosen += _pick(other_effects, 4, used)
+    chosen += _pick(other_counters, 2, used)
+
+    # Fill remaining up to 30 with any faction
+    remaining = NEWBIE_DECK_SIZE - len(chosen)
+    if remaining > 0:
+        fill_pool = [c for c in pool if used[c.id] < 3]
+        random.shuffle(fill_pool)
+        for card in fill_pool:
+            if len(chosen) >= NEWBIE_DECK_SIZE:
+                break
+            unit_cnt = sum(1 for c in chosen if _type_set(c) == "unit")
+            eff_cnt = sum(1 for c in chosen if _type_set(c) == "effect")
+            cnt_cnt = sum(1 for c in chosen if _type_set(c) == "counter")
+            t = _type_set(card)
+            if t == "unit" and unit_cnt >= NEWBIE_MAX_UNITS: continue
+            if t == "effect" and eff_cnt >= NEWBIE_MAX_EFFECTS: continue
+            if t == "counter" and cnt_cnt >= NEWBIE_MAX_COUNTERS: continue
+            if used[card.id] >= 3: continue
+            chosen.append(card)
+            used[card.id] += 1
+
+    for card in chosen:
+        existing = await db.execute(
+            select(UserCard).where(UserCard.user_id == user.id, UserCard.card_id == card.id)
+        )
+        uc = existing.scalar_one_or_none()
+        if uc:
+            uc.count = (uc.count or 0) + 1
+        else:
+            db.add(UserCard(user_id=user.id, card_id=card.id, count=1, level=1, fragments=0))
+
+    user.newbie_claimed = True
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> Response:
     stmt = select(User).where(or_(User.username == body.username, User.email == body.email))
@@ -97,6 +194,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
         ink=500,
     )
     db.add(user)
+    await db.flush()
+
+    await _grant_newbie_deck(db, user)
+
     await db.commit()
     await db.refresh(user)
 

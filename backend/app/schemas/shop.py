@@ -10,7 +10,6 @@ class PackOut(BaseModel):
     cost_type: str = "ink"
     price_elo: int = 0
     min_elo: int = 0
-    one_time: bool = False
     faction_code: str | None = None
 
 

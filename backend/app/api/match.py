@@ -346,8 +346,6 @@ async def match_history(
         is_p1 = m.p1_id == uid
         opp_id = m.p2_id if is_p1 else m.p1_id
         opp = await db.get(User, opp_id)
-        if not opp:
-            continue
         res = _match_result(m, uid)
         my_deck = await db.get(Deck, m.p1_deck_id if is_p1 else m.p2_deck_id)
         opp_deck = await db.get(Deck, m.p2_deck_id if is_p1 else m.p1_deck_id)
@@ -356,7 +354,11 @@ async def match_history(
             MatchHistoryItem(
                 id=str(m.id),
                 mode=m.mode or "quick",
-                opponent=OpponentInfo(id=str(opp.id), username=opp.username, elo=opp.elo),
+                opponent=OpponentInfo(
+                    id=str(opp.id) if opp else str(opp_id),
+                    username=opp.username if opp else "已注销",
+                    elo=opp.elo if opp else 0,
+                ),
                 result=res,
                 my_elo_change=_my_elo_change(m, uid),
                 end_reason=m.end_reason,
