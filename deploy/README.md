@@ -129,7 +129,8 @@ f697305bb47d (initial)
   → a1b2c3d4e5f6
   → b4c5d6e7f8a9
   → 002_upgrade_system
-  → c5d6e7f8a9b0 (head)
+  → c5d6e7f8a9b0
+  → d6e7f8a9b0c1 (head)
 ```
 
 ## Next.js Standalone 模式
