@@ -11,6 +11,8 @@ LOG_DIR="${SCRIPT_DIR}/logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/backend_${TIMESTAMP}.log"
 
+source "${SCRIPT_DIR}/lib/common.sh"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
@@ -43,12 +45,17 @@ echo ""
 # ── 阶段 1: 环境检查 ──
 echo -e "${CYAN}────────────────── 1/5  环境检查 ──────────────────${NC}"
 
-for cmd in git python3 uv; do
+for cmd in git python3; do
   if ! command -v "$cmd" &>/dev/null; then
     error "缺少命令: $cmd"
     exit 1
   fi
 done
+
+if ! detect_python_tool >> "$LOG_FILE" 2>&1; then
+  exit 1
+fi
+log_info "Python 包管理器: ${PYTHON_TOOL}"
 
 # Python 版本
 PY_VER=$(python3 --version 2>/dev/null | awk '{print $2}')
@@ -92,34 +99,23 @@ echo ""
 # ── 阶段 3: 依赖安装 ──
 echo -e "${CYAN}────────────────── 3/5  安装 Python 依赖 ──────────${NC}"
 BACKEND_DIR="${PROJECT_DIR}/backend"
-cd "$BACKEND_DIR"
 
-if [[ ! -d ".venv" ]]; then
-  log_info "创建虚拟环境..."
-  uv venv
-fi
-
-source .venv/bin/activate
-log_info "同步依赖 (uv sync --no-dev)..."
-uv sync --no-dev 2>&1 | tee -a "$LOG_FILE"
+setup_venv "$BACKEND_DIR"
+install_backend_deps "$BACKEND_DIR" 2>&1 | tee -a "$LOG_FILE"
 log_ok "Python 依赖安装完成"
 echo ""
 
 # ── 阶段 4: 数据库迁移 ──
 echo -e "${CYAN}────────────────── 4/5  数据库迁移 ────────────────${NC}"
 if confirm "迁移前备份数据库?"; then
-  if [[ -f "${SCRIPT_DIR}/xiaoboserver/backup.sh" ]]; then
-    bash "${SCRIPT_DIR}/xiaoboserver/backup.sh" 2>&1 | tee -a "$LOG_FILE"
+  if [[ -f "${DEPLOY_SERVER_DIR}/backup.sh" ]]; then
+    bash "${DEPLOY_SERVER_DIR}/backup.sh" 2>&1 | tee -a "$LOG_FILE"
   else
     log_info "备份脚本不存在，跳过备份"
   fi
 fi
 
-log_info "当前迁移版本:"
-uv run alembic current 2>&1 | tee -a "$LOG_FILE"
-log_info "执行迁移..."
-uv run alembic upgrade head 2>&1 | tee -a "$LOG_FILE"
-log_ok "数据库迁移完成"
+check_and_migrate_database "$BACKEND_DIR" true
 cd "$PROJECT_DIR"
 echo ""
 

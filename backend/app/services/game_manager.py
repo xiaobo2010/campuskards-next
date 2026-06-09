@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -628,19 +631,20 @@ class GameManager:
             return await self._finalize(room, db, reason="surrender", loser_id=user_id)
 
     async def finalize_if_over(self, room: GameRoom, db: AsyncSession) -> dict[str, Any] | None:
-        if room._finalized or not room.game.game_over or not room.game.winner:
-            return None
+        async with room.lock:
+            if room._finalized or not room.game.game_over or not room.game.winner:
+                return None
 
-        try:
-            match_row = await db.get(Match, uuid.UUID(room.match_id))
-        except ValueError:
-            match_row = None
-        if match_row and match_row.ended_at:
-            room._finalized = True
-            return None
+            try:
+                match_row = await db.get(Match, uuid.UUID(room.match_id))
+            except ValueError:
+                match_row = None
+            if match_row and match_row.ended_at:
+                room._finalized = True
+                return None
 
-        loser_id = room.p2_id if room.game.winner == 1 else room.p1_id
-        return await self._finalize(room, db, reason="combat", loser_id=loser_id)
+            loser_id = room.p2_id if room.game.winner == 1 else room.p1_id
+            return await self._finalize(room, db, reason="combat", loser_id=loser_id)
 
     async def _check_game_over(self, room: GameRoom) -> None:
         """Ensure clients see terminal state when HP reaches zero mid-action."""
@@ -910,6 +914,7 @@ async def expand_deck_cards(db: AsyncSession, deck: Deck) -> list[dict]:
     for entry in entries:
         card = cards_map.get(entry.card_id)
         if not card:
+            logger.warning("Deck %s contains missing card %s, skipping", deck.id, entry.card_id)
             continue
         level = levels_map.get(entry.card_id, 1)
         for _ in range(entry.quantity):

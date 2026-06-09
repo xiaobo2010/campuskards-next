@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.database import async_session
 from app.core.game_engine import GameError
@@ -28,8 +28,22 @@ async def _authenticate_ws(token: str | None) -> str | None:
 async def game_websocket(
     websocket: WebSocket,
     match_id: str,
-    token: str | None = Query(default=None),
 ) -> None:
+    # Read token from subprotocol header first, then cookie, then query string
+    token = None
+    sp = websocket.headers.get("sec-websocket-protocol", "")
+    if sp:
+        token = sp.split(",")[0].strip()
+    if not token:
+        token = websocket.cookies.get("campuskards_token")
+    if not token:
+        # Check query string as fallback (legacy)
+        from urllib.parse import parse_qs, urlparse
+        qs = websocket.url.query if hasattr(websocket.url, 'query') else ""
+        if qs:
+            params = parse_qs(qs)
+            token = params.get("token", [None])[0]
+
     user_id = await _authenticate_ws(token)
     if not user_id:
         await websocket.close(code=4401, reason="Unauthorized")
@@ -44,7 +58,8 @@ async def game_websocket(
             await websocket.close(code=4403, reason="Not a participant")
             return
 
-        await websocket.accept()
+        subprotocol = token if token else None
+        await websocket.accept(subprotocol=subprotocol)
         await game_manager.connect(match_id, user_id, websocket)
 
         while True:

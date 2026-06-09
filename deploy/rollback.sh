@@ -11,6 +11,8 @@ LOG_DIR="${SCRIPT_DIR}/logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/rollback_${TIMESTAMP}.log"
 
+source "${SCRIPT_DIR}/lib/common.sh"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
@@ -48,6 +50,8 @@ for cmd in git; do
     exit 1
   fi
 done
+
+detect_python_tool 2>/dev/null || true
 
 # ── 获取提交历史 ──
 echo -e "${CYAN}最近 10 个提交:${NC}"
@@ -90,6 +94,7 @@ case "$scope" in
       if confirm "构建前端?" "n"; then
         cd "${PROJECT_DIR}/frontend"
         npm ci && npm run build 2>&1 | tee -a "$LOG_FILE"
+        copy_standalone_assets "${PROJECT_DIR}/frontend" 2>&1 | tee -a "$LOG_FILE"
         sudo systemctl restart campuskards-frontend || true
       fi
       if confirm "重启后端?"; then
@@ -104,21 +109,19 @@ case "$scope" in
     log_ok "代码已回滚"
 
     log_info "查找目标提交对应的数据库迁移版本..."
-    cd "${PROJECT_DIR}/backend"
-    source .venv/bin/activate
+    setup_venv "${PROJECT_DIR}/backend"
 
-    # 显示当前和可降级的迁移
     log_info "当前迁移版本:"
-    uv run alembic current 2>&1 | tee -a "$LOG_FILE"
+    run_alembic "${PROJECT_DIR}/backend" current 2>&1 | tee -a "$LOG_FILE"
     log_info "迁移历史:"
-    uv run alembic history 2>&1 | tee -a "$LOG_FILE"
+    run_alembic "${PROJECT_DIR}/backend" history 2>&1 | tee -a "$LOG_FILE"
 
     echo ""
     read -r -p "$(echo -e "${YELLOW}?${NC} 输入降级目标版本标识 (留空取消): ")" DOWN_REV
     if [[ -n "$DOWN_REV" ]]; then
       log_info "降级数据库到 ${DOWN_REV}..."
       if confirm "降级操作不可逆，确认继续?" "n"; then
-        uv run alembic downgrade "$DOWN_REV" 2>&1 | tee -a "$LOG_FILE"
+        run_alembic "${PROJECT_DIR}/backend" downgrade "$DOWN_REV" 2>&1 | tee -a "$LOG_FILE"
         log_ok "数据库已降级"
       fi
     fi
@@ -129,17 +132,16 @@ case "$scope" in
     fi
     ;;
   3)
-    cd "${PROJECT_DIR}/backend"
-    source .venv/bin/activate
+    setup_venv "${PROJECT_DIR}/backend"
     log_info "当前迁移版本:"
-    uv run alembic current 2>&1 | tee -a "$LOG_FILE"
+    run_alembic "${PROJECT_DIR}/backend" current 2>&1 | tee -a "$LOG_FILE"
     log_info "迁移历史:"
-    uv run alembic history 2>&1 | tee -a "$LOG_FILE"
+    run_alembic "${PROJECT_DIR}/backend" history 2>&1 | tee -a "$LOG_FILE"
     echo ""
     read -r -p "$(echo -e "${YELLOW}?${NC} 输入降级目标版本标识 (留空取消): ")" DOWN_REV
     if [[ -n "$DOWN_REV" ]]; then
       if confirm "降级操作不可逆，确认继续?" "n"; then
-        uv run alembic downgrade "$DOWN_REV" 2>&1 | tee -a "$LOG_FILE"
+        run_alembic "${PROJECT_DIR}/backend" downgrade "$DOWN_REV" 2>&1 | tee -a "$LOG_FILE"
         log_ok "数据库已降级"
         if confirm "重启后端服务?"; then
           sudo systemctl restart campuskards-backend

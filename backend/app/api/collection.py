@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.api.auth import _get_current_user
+from app.api.auth import _get_current_user, _require_admin
 from app.models import User, UserCard, Card
 from app.schemas.card import CardOut
 from app.schemas.collection import UserCardOut
@@ -17,11 +17,11 @@ FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary"
 
 
 class AddCollectionRequest(BaseModel):
-    count: int = 1
+    count: int = Field(default=1, ge=1)
 
 
 class ConvertRequest(BaseModel):
-    count: int = 1
+    count: int = Field(default=1, ge=1)
 
 
 @router.get("", response_model=list[UserCardOut])
@@ -53,7 +53,7 @@ async def get_collection(
 async def add_to_collection(
     card_id: str,
     body: AddCollectionRequest,
-    user: User = Depends(_get_current_user),
+    _admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     card = await db.get(Card, card_id)
@@ -61,7 +61,7 @@ async def add_to_collection(
         raise HTTPException(status_code=404, detail="卡牌不存在")
 
     result = await db.execute(
-        select(UserCard).where(UserCard.user_id == user.id, UserCard.card_id == card_id)
+        select(UserCard).where(UserCard.user_id == _admin.id, UserCard.card_id == card_id)
     )
     uc = result.scalar_one_or_none()
     if uc:

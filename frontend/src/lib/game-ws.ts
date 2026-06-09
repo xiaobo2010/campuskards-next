@@ -66,8 +66,8 @@ export class GameWsClient {
     this.closed = false;
     this.handlers.onStatusChange?.("connecting");
 
-    const url = `${getWsBase()}/ws/game/${this.matchId}?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(url);
+    const url = `${getWsBase()}/ws/game/${this.matchId}`;
+    const ws = new WebSocket(url, [token]);
     this.ws = ws;
 
     ws.onopen = () => {

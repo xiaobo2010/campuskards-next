@@ -71,10 +71,10 @@ describe("Token helper patterns", () => {
   });
 
   it("URL construction for API calls", () => {
-    const API_BASE = "https://gapi.xiaobocloud.fun";
+    const API_BASE = "https://api.example.com";
     const path = "/api/auth/me";
     const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-    expect(url).toBe("https://gapi.xiaobocloud.fun/api/auth/me");
+    expect(url).toBe("https://api.example.com/api/auth/me");
   });
 });
 

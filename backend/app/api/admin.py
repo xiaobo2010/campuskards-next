@@ -9,17 +9,30 @@ from pathlib import Path
 from scripts.seed_cards import seed as seed_cards
 
 from app.core.database import get_db
-from app.api.auth import _get_current_user
-from app.models import User, Card, Announcement, UserCard
+from app.api.auth import _get_current_user, _require_admin
+from app.models import AdminAuditLog, User, Card, Announcement, UserCard
 from app.schemas.announcement import AnnouncementCreate, AnnouncementUpdate, AnnouncementOut
 from app.schemas.admin import AdminUserUpdate, CardUpdate, ResetKeyUpdate, PinRequest
 from app.schemas.card import CardOut
 
 
-async def _require_admin(user: User = Depends(_get_current_user)) -> User:
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="需要管理员权限")
-    return user
+async def _audit_log(
+    db: AsyncSession,
+    admin: User,
+    action: str,
+    target_type: str,
+    target_id: str,
+    detail: str | None = None,
+) -> None:
+    log = AdminAuditLog(
+        admin_id=admin.id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        detail=detail,
+    )
+    db.add(log)
+    await db.flush()
 
 
 router = APIRouter(
@@ -89,6 +102,7 @@ async def list_admin_users(
 async def update_user(
     user_id: str,
     body: AdminUserUpdate,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     stmt = select(User).where(User.id == user_id)
@@ -97,10 +111,14 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    before = {k: str(getattr(user, k, "")) for k in body.model_dump(exclude_unset=True)}
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(user, field, value)
+    after = {k: str(getattr(user, k, "")) for k in update_data}
 
+    await _audit_log(db, admin, "update_user", "user", str(user.id),
+                     detail=f"changed {list(update_data.keys())}: {before} -> {after}")
     await db.commit()
     await db.refresh(user)
     return {
@@ -151,6 +169,7 @@ async def list_admin_cards(
 async def update_card(
     card_id: str,
     body: CardUpdate,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> CardOut:
     stmt = select(Card).where(Card.id == card_id)
@@ -163,6 +182,8 @@ async def update_card(
     for field, value in update_data.items():
         setattr(card, field, value)
 
+    await _audit_log(db, admin, "update_card", "card", card_id,
+                     detail=f"changed {list(update_data.keys())}")
     await db.commit()
     await db.refresh(card)
     return CardOut.model_validate(card)
@@ -207,6 +228,9 @@ async def create_announcement(
         author_id=user.id,
     )
     db.add(announcement)
+    await db.flush()
+    await _audit_log(db, user, "create_announcement", "announcement", str(announcement.id),
+                     detail=f"title={body.title}")
     await db.commit()
     await db.refresh(announcement)
     return AnnouncementOut.model_validate(announcement)
@@ -216,24 +240,27 @@ async def create_announcement(
 async def update_announcement_put(
     announcement_id: str,
     body: AnnouncementUpdate,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AnnouncementOut:
-    return await _update_announcement(announcement_id, body, db)
+    return await _update_announcement(announcement_id, body, db, admin=admin)
 
 
 @router.patch("/announcements/{announcement_id}", response_model=AnnouncementOut)
 async def update_announcement_patch(
     announcement_id: str,
     body: AnnouncementUpdate,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AnnouncementOut:
-    return await _update_announcement(announcement_id, body, db)
+    return await _update_announcement(announcement_id, body, db, admin=admin)
 
 
 async def _update_announcement(
     announcement_id: str,
     body: AnnouncementUpdate,
     db: AsyncSession,
+    admin: User | None = None,
 ) -> AnnouncementOut:
     stmt = select(Announcement).where(Announcement.id == announcement_id)
     result = await db.execute(stmt)
@@ -245,6 +272,9 @@ async def _update_announcement(
     for field, value in update_data.items():
         setattr(announcement, field, value)
 
+    if admin:
+        await _audit_log(db, admin, "update_announcement", "announcement", announcement_id,
+                         detail=f"changed {list(update_data.keys())}")
     await db.commit()
     await db.refresh(announcement)
     return AnnouncementOut.model_validate(announcement)
@@ -253,6 +283,7 @@ async def _update_announcement(
 @router.delete("/announcements/{announcement_id}", status_code=204)
 async def delete_announcement(
     announcement_id: str,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     stmt = select(Announcement).where(Announcement.id == announcement_id)
@@ -260,6 +291,8 @@ async def delete_announcement(
     announcement = result.scalar_one_or_none()
     if not announcement:
         raise HTTPException(status_code=404, detail="公告不存在")
+    await _audit_log(db, admin, "delete_announcement", "announcement", announcement_id,
+                     detail=f"title={announcement.title}")
     await db.delete(announcement)
     await db.commit()
 
@@ -268,6 +301,7 @@ async def delete_announcement(
 async def pin_announcement(
     announcement_id: str,
     body: PinRequest,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AnnouncementOut:
     stmt = select(Announcement).where(Announcement.id == announcement_id)
@@ -277,6 +311,8 @@ async def pin_announcement(
         raise HTTPException(status_code=404, detail="公告不存在")
 
     announcement.is_pinned = body.is_pinned
+    await _audit_log(db, admin, "pin_announcement", "announcement", announcement_id,
+                     detail=f"is_pinned={body.is_pinned}")
     await db.commit()
     await db.refresh(announcement)
     return AnnouncementOut.model_validate(announcement)
@@ -286,6 +322,7 @@ async def pin_announcement(
 async def set_user_reset_key(
     user_id: str,
     body: ResetKeyUpdate,
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """设置用户的密码重置密钥（仅管理员）。"""
@@ -299,6 +336,8 @@ async def set_user_reset_key(
         raise HTTPException(status_code=404, detail="用户不存在")
 
     user.reset_key = body.reset_key
+    await _audit_log(db, admin, "set_reset_key", "user", str(user.id),
+                     detail="reset key was set by admin")
     await db.commit()
     await db.refresh(user)
 
@@ -307,6 +346,7 @@ async def set_user_reset_key(
 
 @router.post("/cards/reseed")
 async def admin_reseed_cards(
+    admin: User = Depends(_require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     # Resolve card-data.json relative to backend directory
@@ -326,6 +366,8 @@ async def admin_reseed_cards(
         raise HTTPException(status_code=500, detail="未找到 card-data.json 文件")
 
     result = await seed_cards(db=db, json_path=json_path)
+    await _audit_log(db, admin, "reseed_cards", "cards", "all",
+                     detail=f"inserted={result['cards_inserted']} updated={result['cards_updated']}")
     return {
         "message": f"导入完成：新增 {result['factions_inserted']} 个势力，"
                    f"新增 {result['cards_inserted']} 张卡牌，"

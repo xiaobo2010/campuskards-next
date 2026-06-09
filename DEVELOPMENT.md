@@ -13,16 +13,15 @@
 |---|---|
 | 前端 | Next.js 14 App Router + shadcn/ui + Framer Motion + Zustand + React Query |
 | 后端 | FastAPI + SQLAlchemy 2.0 + PostgreSQL + Pydantic v2 |
-| 前端部署 | Azure Tokyo `130.33.98.30:3001` |
-| 后端部署 | XiaoBo Server `/ssd/7a40/campuskards` |
-| 前端域名 | `campuskards.xiaobocloud.fun` |
-| 后端域名 | `gapi.xiaobocloud.fun` |
-| 后端端口 | `127.0.0.1:8000`（通过 Nginx 反向代理至 `gapi.xiaobocloud.fun`） |
+| 前端部署 | 前端服务器（systemd + Next.js standalone） |
+| 后端部署 | 后端服务器（systemd + FastAPI） |
+| 前端域名 | 按生产环境配置（如 `https://your-frontend-domain.com`） |
+| 后端域名 | 按生产环境配置（如 `https://api.your-domain.com`） |
+| 后端端口 | `127.0.0.1:8000`（通过 Nginx 反向代理至 API 域名） |
 | 前端端口 | `3000`（Next.js standalone 模式） |
-| GitHub | `xiaobo2010/campuskards` |
 
 ### ⚠️ Known Constraints
-- **XiaoBo Server 无法连 GitHub 和国外网站**，代码需从 OCI 推送后在 XiaoBo Server `git pull`
+- 若后端服务器网络受限，需通过中转同步代码后再 `git pull`
 - 测试统一在 `backend/` 目录下通过 `pytest` 运行（`backend/tests/` 含 12 个测试文件）
 
 ---
@@ -111,32 +110,36 @@ P1 支援线 (P1 Support Line)
 
 ### 4.1 Auth 认证模块 `/api/auth`
 
-| # | 方法 | 路径 | 认证 | 说明 | 状态 |
-|---|------|------|------|------|------|
-| 1 | POST | `/api/auth/register` | ❌ | 用户注册 | ✅ |
-| 2 | POST | `/api/auth/login` | ❌ | 用户登录 | ✅ |
-| 3 | POST | `/api/auth/refresh` | ❌ | 刷新 Token | ✅ |
-| 4 | GET | `/api/auth/me` | ✅ | 获取当前用户信息 | ✅ |
-| 5 | POST | `/api/auth/set-cookie` | ✅ | 将 token 写入 httpOnly cookie | ✅ |
-| 6 | POST | `/api/auth/logout` | ✅ | 登出(清除 cookie) | ✅ |
-| 7 | POST | `/api/auth/reset-password` | ❌ | 重置密码(使用 reset_key) | ✅ |
-| 8 | PATCH | `/api/auth/me` | ✅ | 更新个人资料(密码/邮箱) | ✅ |
+| # | 方法 | 路径 | 认证 | 说明 | 安全 | 状态 |
+|---|------|------|------|------|------|------|
+| 1 | POST | `/api/auth/register` | ❌ | 用户注册 | ⏱ 3次/IP/h | ✅ |
+| 2 | POST | `/api/auth/login` | ❌ | 用户登录 | ⏱ 5次/IP/min | ✅ |
+| 3 | POST | `/api/auth/refresh` | ❌ | 刷新 Token | `ver` 校验 | ✅ |
+| 4 | GET | `/api/auth/me` | ✅ | 获取当前用户信息 | `ver` 校验 | ✅ |
+| 5 | POST | `/api/auth/set-cookie` | ✅ | 将 token 写入 httpOnly cookie | 持有者证明 | ✅ |
+| 6 | POST | `/api/auth/logout` | ✅ | 登出(清除 cookie + 自增 token_version) | 令牌立即失效 | ✅ |
+| 7 | POST | `/api/auth/reset-password` | ❌ | 重置密码(使用 reset_key) | ⏱ 3次/IP/10min | ✅ |
+| 8 | PATCH | `/api/auth/me` | ✅ | 更新个人资料(密码/邮箱) | 改密码自增 ver | ✅ |
 
 **1. POST /api/auth/register**
-- 请求体：`{ username: str, password: str, email: str, remember: bool = true }`
+- 请求体：`{ username: str(3-32, 字母数字下划线中文), password: str(8-128, 必须含字母+数字), email: EmailStr, remember: bool = true }`
 - 响应 `201`：`{ access_token: str, refresh_token: str, token_type: "bearer" }`
 - 副作用：自动设置 httpOnly cookie + 自动发放 30 张新手卡牌
 - 错误 `409`：用户名/邮箱已存在
+- ⏱ 频率限制：3 次/IP/小时
 
 **2. POST /api/auth/login**
 - 请求体：`{ login: str, password: str, remember: bool = false }`
 - 响应 `200`：`{ access_token: str, refresh_token: str, token_type: "bearer" }`
 - ⚠️ 响应中的 Set-Cookie 可能被代理链吞掉，前端必须额外调用 `/api/auth/set-cookie`
 - 错误 `401`：用户名或密码错误
+- ⏱ 频率限制：5 次/IP/分钟
+- 🔐 `ver` 校验：使用 `user.token_version` 签发，不匹配则拒绝
 
 **3. POST /api/auth/refresh**
 - 请求体：`{ refresh_token: str }`
 - 响应 `200`：`{ access_token: str, refresh_token: str, token_type: "bearer" }`
+- 🔐 校验 payload 中 `ver` 与 `user.token_version` 一致
 
 **4. GET /api/auth/me**
 - 请求头：`Authorization: Bearer <token>`（或 cookie 自动携带）
@@ -144,15 +147,18 @@ P1 支援线 (P1 Support Line)
 
 **5. POST /api/auth/set-cookie**
 - 请求体：`{ access_token: str, refresh_token: str, remember: bool }`
+- 请求头：`Authorization: Bearer <当前用户 token>`（持有者证明）
 - 响应 `200`：`{ message: "Cookie set" }`
-- 校验：access/refresh token 必须合法且属于同一用户
+- 校验：access/refresh token 必须合法且属于同一用户，且必须与当前认证用户一致
 - 副作用：设置 `campuskards_token` + `campuskards_refresh_token` httpOnly cookie
 - Cookie 策略：`ENVIRONMENT=production` → `Secure; SameSite=none`；开发环境 → `SameSite=lax`
+- 🛡️ 持有者证明：仅当前用户可设置自己的 Cookie
 
 **6. POST /api/auth/logout** ✅
 - 请求头：`Authorization: Bearer <token>` 或 cookie
 - 响应 `200`：`{ message: "已登出" }`
-- 副作用：清除 auth cookies
+- 副作用：`user.token_version += 1`（所有已签发令牌立即失效）+ 清除 auth cookies
+- 🛡️ 令牌自增版本号使所有旧 token 无法再通过 `_get_current_user` 校验
 
 ---
 
@@ -387,10 +393,15 @@ P1 支援线 (P1 Support Line)
 
 > 实时对战状态同步，基于 WebSocket。消息统一封装为 `{ "event": string, "payload": object }`。
 
-**连接**：`wss://gapi.xiaobocloud.fun/ws/game/{match_id}?token=<access_token>`  
-**本地**：`ws://localhost:8000/ws/game/{match_id}?token=<access_token>`
+**连接**：`wss://<api-domain>/ws/game/{match_id}`  
+**本地**：`ws://localhost:8000/ws/game/{match_id}`
 
-**认证**：Query 参数 `token` 为 access_token（与 REST Bearer 相同）。仅对战双方可连接。
+**认证**（优先级从高到低）：
+1. `Sec-WebSocket-Protocol` 子协议头 — 前端通过 `new WebSocket(url, [token])` 传递
+2. `campuskards_token` httpOnly Cookie
+3. `?token=` Query 参数（向下兼容，已不推荐）
+
+仅对战双方可连接。Token 为 access_token（与 REST Bearer 相同）。
 
 **引擎规则（v1）**：
 - 回合阶段：`draw → main → combat → end`，与 `app/core/game_engine.py` 一致
@@ -449,7 +460,7 @@ P1 支援线 (P1 Support Line)
 **前端接入流程**：
 1. `POST /api/match/queue` `{ deck_id }`
 2. 轮询 `GET /api/match/queue/status` 直至 `status === "matched"`
-3. 连接 `ws://<API>/ws/game/{match_id}?token=...`
+3. 连接 `ws://<API>/ws/game/{match_id}`（Token 通过 Subprotocol 传递）
 4. 发送 `{ "event": "join_match", "payload": { "match_id": "..." } }`
 5. 监听 `game_state` / `turn_start` / `game_over`
 
@@ -528,8 +539,8 @@ P1 支援线 (P1 Support Line)
 
 ### P1 应快修
 
-| # | Bug | 改动范围 | 状态 |
-|---|-----|---------|------|
+| ID | 问题 | 根因 | 状态 |
+|----|------|------|------|
 | P1-4 | Zustand store 拆分 | `store/useAuthStore` + `useCollectionStore` + `useDeckStore` | ✅ |
 | P1-5 | AuthGuard 客户端门控 | `middleware.ts` 不做 /game 拦截 + `auth-guard.tsx` 重定向 | ✅ 2026-06-08 |
 | P1-6 | API 统一错误处理 | `lib/api.ts` formatApiDetail + `api-error.ts` | ✅ 2026-06-08 |
@@ -544,7 +555,22 @@ P1 支援线 (P1 Support Line)
 | P1-18 | 卡组类型大小写 | `deck-builder/page.tsx` getCategory | ✅ 2026-06-08 |
 | P1-19 | 双轨认证不同步 | 统一 `useAuth()` 管理墨水/头像 | ✅ 2026-06-08 |
 | P1-20 | JWT UTC NameError | `backend/app/core/security.py` | ✅ 2026-06-08 |
-| **P1-21** | **shop.py fragment_drops 未定义变量** | `shop.py` 开包致命 NameError | **✅ 2026-06-09** |
+| P1-21 | **shop.py fragment_drops 未定义变量** | `shop.py` 开包致命 NameError | **✅ 2026-06-09** |
+| **SEC-1** | add_to_collection 免费得卡 | 无权限校验 → 加 `_require_admin` | ✅ 2026-06-09 |
+| **SEC-2** | _require_current_player 空函数 | 防御纵深缺失 → 实现校验 | ✅ 2026-06-09 |
+| **SEC-3** | 无认证频率限制 | 可暴力破解 → Redis 频率限制 | ✅ 2026-06-09 |
+| **SEC-4** | JWT 无法撤销 | 无 token_version → 加入 payload+DB | ✅ 2026-06-09 |
+| **SEC-5** | finalize_if_over 竞态条件 | 无锁双重检查 → room.lock | ✅ 2026-06-09 |
+| **SEC-6** | /set-cookie 无持有者证明 | 可被利用劫持 → 增加认证 | ✅ 2026-06-09 |
+| **SEC-7** | WS token 在 URL | 日志泄露 → 移至 Subprotocol | ✅ 2026-06-09 |
+| **SEC-8** | 选卡会话在进程内存 | 多 worker 丢失 → 移至 Redis | ✅ 2026-06-09 |
+| **SEC-9** | 无管理员审计日志 | 操作无留痕 → AdminAuditLog 表 | ✅ 2026-06-09 |
+| **SEC-10** | 无安全响应头 | XSS/点击劫持 → 中间件 | ✅ 2026-06-09 |
+| **SEC-11** | 无请求体大小限制 | DoS 攻击 → 1MB 上限中间件 | ✅ 2026-06-09 |
+| **SEC-12** | 密码强度不足 | 弱密码 → regex 验证 | ✅ 2026-06-09 |
+| **SEC-13** | 效果引擎静默失败 | 正则不匹配无提示 → logger.warning | ✅ 2026-06-09 |
+| **SEC-14** | 卡组缺失卡牌静默跳过 | 不满 30 张继续 → logger.warning | ✅ 2026-06-09 |
+| **SEC-15** | collection count 无 ge=1 校验 | 允许 0/负数 → Pydantic Field | ✅ 2026-06-09 |
 
 ### P2 体验优化 — ⬜ 待修复
 
@@ -621,82 +647,62 @@ frontend/src/
 
 | 组件 | 服务器 | 端口 | 域名 |
 |------|--------|------|------|
-| 后端 FastAPI | XiaoBo Server (systemd) | `127.0.0.1:8000` | `gapi.xiaobocloud.fun` (Nginx 反向代理) |
-| 前端 Next.js | Azure Tokyo (systemd) | `:3001` (next start standalone) | `campuskards.xiaobocloud.fun` (Nginx 反向代理) |
-| 数据库 PostgreSQL | XiaoBo Server (systemd) | `localhost:5432` | — |
-| 缓存 Redis | XiaoBo Server (systemd) | `localhost:6379` | — |
+| 后端 FastAPI | 后端服务器 (systemd) | `127.0.0.1:8000` | API 域名 (Nginx 反向代理) |
+| 前端 Next.js | 前端服务器 (systemd) | `:3000` (standalone) | 前端域名 (Nginx 反向代理) |
+| 数据库 PostgreSQL | 后端服务器 (systemd) | `localhost:5432` | — |
+| 缓存 Redis | 后端服务器 (systemd) | `localhost:6379` | — |
 
-### 自动部署 (`deploy/xiaoboserver/deploy.sh`)
+### 自动部署
 
 ```bash
-# 在 XiaoBo Server 上执行
-cd /ssd/7a40/campuskards/deploy/xiaoboserver
-bash deploy.sh
+# 交互式部署（推荐）
+sudo bash deploy/deploy.sh
+
+# 非交互一键部署（CI/cron）
+bash deploy/server/deploy.sh
 ```
 
-`deploy.sh` 自动执行：
-1. `git pull origin main`
-2. 安装后端 Python 依赖（uv sync）
-3. 构建前端（npm ci + npm run build）
-4. 运行数据库迁移（alembic upgrade head）
-5. 重启 systemd 服务（backend + frontend）
+部署脚本自动执行：拉代码 → 安装依赖（uv 或 pip）→ 构建前端 → 复制 standalone 静态资源 → 迁移版本检查 + upgrade → 重启服务。
+
+详细说明见 [`deploy/README.md`](deploy/README.md)。
 
 ### 手动部署
 
-#### 后端 (XiaoBo Server)
+#### 后端
 
 ```bash
-# 1. 拉取代码
-cd /ssd/7a40/campuskards
+cd /opt/campuskards          # 替换为实际项目路径
 git pull origin main
-
-# 2. 安装后端依赖
-cd backend
-source .venv/bin/activate
-uv sync --no-dev
-
-# 3. 运行迁移
-uv run alembic upgrade head
-
-# 4. 复制环境变量（首次）
-cp ../deploy/xiaoboserver/.env .env
-
-# 5. 重启服务
-sudo systemctl restart campuskards-backend
+sudo bash deploy/deploy-backend.sh
 ```
 
-#### 前端 (Azure Tokyo)
+#### 前端
 
 ```bash
-# 1. 拉取代码
-cd /home/xiaobo2010/campuskards/frontend
+cd /opt/campuskards
 git pull origin main
-
-# 2. 安装依赖 + 构建
-npm ci
-npm run build
-
-# 3. 重启服务
-sudo systemctl restart campuskards-frontend
+sudo bash deploy/deploy-frontend.sh
 ```
 
-### systemd Service 文件位置
+### systemd Service 文件
 
 ```
-deploy/xiaoboserver/
-├── campuskards-backend.service     # FastAPI, 4 workers, MemoryMax=1G
-├── campuskards-frontend.service    # Next.js standalone (:3000)
-├── deploy.sh                       # 一键部署脚本
-├── backup.sh                       # DB 每日备份（保留 7 天）
+deploy/server/
+├── campuskards-backend.service.example
+├── campuskards-frontend.service.example
+├── install-services.sh             # 安装并替换 __PROJECT_ROOT__
+├── deploy.sh                       # 非交互一键部署
+├── backup.sh                       # DB 备份（保留 7 天）
 └── .env.example                    # 环境变量模板
 ```
 
 ### Service 配置要点
 
 - **后端**：`uvicorn` 4 workers，`--timeout-keep-alive 30` 防止 502
-- **前端**：Next.js `output: "standalone"`，`next start` 运行
+- **前端**：Next.js `output: "standalone"`，运行 `server.js`；构建后需复制 `.next/static` 和 `public/`
 - **健康检查**：`GET /health` 返回 DB + Redis 状态
 - **数据库备份**：`backup.sh` 每日 `pg_dump` → 压缩 → 保留 7 天
+- **旧库迁移**：首次升级需 `alembic stamp <revision>` 标记当前 schema 版本
 
 ### 日志查看
 
@@ -714,10 +720,8 @@ sudo tail -f /var/log/nginx/access.log
 ### 流程：代码从本地推送到生产
 
 ```
-本地 → GitHub (git push) → XiaoBo Server (git pull + bash deploy.sh)
+本地 → Git 远程仓库 (git push) → 后端服务器 (git pull + bash deploy/deploy.sh)
 ```
-
-> ⚠️ XiaoBo Server 无法直接连接 GitHub，需从 OCI 推送后在服务器上手动 `git pull`
 
 ---
 

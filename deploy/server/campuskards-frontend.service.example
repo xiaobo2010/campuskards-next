@@ -1,0 +1,29 @@
+[Unit]
+Description=CampusKards Frontend (Next.js standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=ck
+Group=ck
+WorkingDirectory=__PROJECT_ROOT__/frontend/.next/standalone
+
+Environment=NODE_ENV=production
+Environment=NEXT_PUBLIC_API_URL=https://api.your-domain.com
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# standalone 模式：server.js 位于 .next/standalone/
+ExecStart=/usr/bin/node __PROJECT_ROOT__/frontend/.next/standalone/server.js
+
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

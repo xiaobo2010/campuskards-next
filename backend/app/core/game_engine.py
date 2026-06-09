@@ -879,7 +879,8 @@ class GameState:
             raise GameError("Resolve pending effect choice first")
 
     def _require_current_player(self) -> None:
-        pass
+        if self.current_player not in (1, 2):
+            raise GameError(f"Invalid current player: {self.current_player}")
 
     def _check_death(self, player: int) -> None:
         side = self.battlefield.side_for(player)

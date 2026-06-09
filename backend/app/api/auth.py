@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limiter import rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -55,6 +56,17 @@ async def _get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="账号已被封禁")
+    token_ver = payload.get("ver", 0)
+    if token_ver != user.token_version:
+        raise HTTPException(status_code=401, detail="令牌已过期，请重新登录")
+    return user
+
+
+async def _require_admin(user: User = Depends(_get_current_user)) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
 
 
@@ -181,7 +193,11 @@ async def _grant_newbie_deck(db: AsyncSession, user: User) -> None:
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> Response:
+async def register(
+    body: RegisterRequest,
+    _r: None = Depends(rate_limit(3, 3600, "register")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
     stmt = select(User).where(or_(User.username == body.username, User.email == body.email))
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
@@ -202,8 +218,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
     await db.refresh(user)
 
     token_resp = TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), token_version=user.token_version),
+        refresh_token=create_refresh_token(str(user.id), token_version=user.token_version),
     )
     json_resp = JSONResponse(content=token_resp.model_dump(), status_code=status.HTTP_201_CREATED)
     _set_auth_cookies(json_resp, token_resp.access_token, token_resp.refresh_token, remember=body.remember)
@@ -211,7 +227,11 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
 
 
 @router.post("/login")
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Response:
+async def login(
+    body: LoginRequest,
+    _r: None = Depends(rate_limit(5, 60, "login")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
     stmt = select(User).where(or_(User.username == body.login, User.email == body.login))
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -223,8 +243,8 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Respo
         raise HTTPException(status_code=403, detail="账号已被封禁")
 
     token_resp = TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), token_version=user.token_version),
+        refresh_token=create_refresh_token(str(user.id), token_version=user.token_version),
     )
     json_resp = JSONResponse(content=token_resp.model_dump())
     _set_auth_cookies(json_resp, token_resp.access_token, token_resp.refresh_token, remember=body.remember)
@@ -253,10 +273,15 @@ async def refresh(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="用户不存在")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="账号已被封禁")
+    token_ver = payload.get("ver", 0)
+    if token_ver != user.token_version:
+        raise HTTPException(status_code=401, detail="刷新令牌已过期，请重新登录")
 
     token_resp = TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        refresh_token=create_refresh_token(str(user.id)),
+        access_token=create_access_token(str(user.id), token_version=user.token_version),
+        refresh_token=create_refresh_token(str(user.id), token_version=user.token_version),
     )
     json_resp = JSONResponse(content=token_resp.model_dump())
     _set_auth_cookies(json_resp, token_resp.access_token, token_resp.refresh_token)
@@ -269,14 +294,22 @@ async def me(user: User = Depends(_get_current_user)) -> UserOut:
 
 
 @router.post("/logout")
-async def logout(_user: User = Depends(_get_current_user)) -> Response:
+async def logout(
+    _user: User = Depends(_get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    _user.token_version += 1
+    await db.commit()
     response = JSONResponse(content={"message": "已登出"})
     _clear_auth_cookies(response)
     return response
 
 
 @router.post("/set-cookie")
-async def set_cookie(body: SetCookieRequest) -> Response:
+async def set_cookie(
+    body: SetCookieRequest,
+    current_user: User = Depends(_get_current_user),
+) -> Response:
     access_payload = decode_token(body.access_token)
     if not access_payload or access_payload.get("type") != "access":
         raise HTTPException(status_code=401, detail="无效的访问令牌")
@@ -288,6 +321,9 @@ async def set_cookie(body: SetCookieRequest) -> Response:
     if access_payload.get("sub") != refresh_payload.get("sub"):
         raise HTTPException(status_code=400, detail="访问令牌与刷新令牌用户不一致")
 
+    if str(current_user.id) != access_payload.get("sub"):
+        raise HTTPException(status_code=403, detail="令牌不属于当前用户")
+
     response = JSONResponse({"message": "Cookie set"}, status_code=200)
     common_kwargs = _cookie_kwargs(body.remember)
     response.set_cookie(key="campuskards_token", value=body.access_token, **common_kwargs)
@@ -298,6 +334,7 @@ async def set_cookie(body: SetCookieRequest) -> Response:
 @router.post("/reset-password")
 async def reset_password(
     body: ResetPasswordRequest,
+    _r: None = Depends(rate_limit(3, 600, "reset_password")),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     stmt = select(User).where(User.username == body.username)
@@ -311,6 +348,7 @@ async def reset_password(
     if user.reset_key is None or not secrets.compare_digest(user.reset_key, body.reset_key):
         raise HTTPException(status_code=400, detail=invalid_msg)
     user.password_hash = hash_password(body.new_password)
+    user.token_version += 1
     user.reset_key = None
     await db.commit()
     return {"message": "密码重置成功"}
@@ -329,6 +367,7 @@ async def update_profile(
         if not verify_password(body.current_password, user.password_hash):
             raise HTTPException(status_code=400, detail="当前密码错误")
         user.password_hash = hash_password(body.new_password)
+        user.token_version += 1
     if body.email is not None and body.email != user.email:
         stmt = select(User).where(User.email == body.email)
         result = await db.execute(stmt)

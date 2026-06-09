@@ -6,7 +6,7 @@ from datetime import datetime
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_\u4e00-\u9fff]+$")
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
     remember: bool = True
 
 
@@ -44,13 +44,13 @@ class UserOut(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     username: str = Field(min_length=1)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
     reset_key: str = Field(min_length=1)
 
 
 class UpdateProfileRequest(BaseModel):
     current_password: str | None = None
-    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+    new_password: str | None = Field(default=None, min_length=8, max_length=128, pattern=r"^(?=.*[A-Za-z])(?=.*\d).+$")
     email: EmailStr | None = None
 
 

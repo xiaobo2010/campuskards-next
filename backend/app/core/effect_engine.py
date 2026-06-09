@@ -1,9 +1,12 @@
 """Pattern-based card effect execution for CampusKards v1."""
 from __future__ import annotations
 
+import logging
 import random
 import re
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from .effect_choices import evaluate_condition, split_conditional_clauses
 from .faction_synergy import (
@@ -606,6 +609,10 @@ def execute_spell(
 ) -> None:
     """Resolve a command/buff/counter card played from hand."""
     text = card.effect_text or card.effect_code or ""
+
+    if not text:
+        logger.warning("Spell card %s has no effect text", card.name)
+        return
 
     if card.card_type == "command":
         game.commands_played_before_current[player] = game.commands_played_this_turn.get(

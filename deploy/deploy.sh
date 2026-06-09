@@ -11,6 +11,8 @@ LOG_DIR="${SCRIPT_DIR}/logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/deploy_${TIMESTAMP}.log"
 
+source "${SCRIPT_DIR}/lib/common.sh"
+
 # ── 颜色 ──
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; NC='\033[0m' # No Color
@@ -62,11 +64,18 @@ preflight_check() {
   fi
 
   # 系统命令
-  for cmd in git node npm python3 uv systemctl; do
+  for cmd in git node npm python3 systemctl; do
     if ! command -v "$cmd" &>/dev/null; then
       log_warn "命令 $cmd 未安装（若不需要可忽略）"
     fi
   done
+
+  # Python 包管理器（uv 优先，无则回退 pip）
+  if ! detect_python_tool >> "$LOG_FILE" 2>&1; then
+    checks_ok=false
+  else
+    log_info "Python 包管理器: ${PYTHON_TOOL}"
+  fi
 
   # Node 版本
   if command -v node &>/dev/null; then
@@ -99,10 +108,10 @@ preflight_check() {
   fi
 
   # 环境变量文件
-  if [[ ! -f "${SCRIPT_DIR}/xiaoboserver/.env" ]]; then
-    log_warn "生产环境变量文件不存在: ${SCRIPT_DIR}/xiaoboserver/.env"
-    if [[ -f "${SCRIPT_DIR}/xiaoboserver/.env.example" ]]; then
-      info "参考模板: ${SCRIPT_DIR}/xiaoboserver/.env.example"
+  if [[ ! -f "${DEPLOY_SERVER_DIR}/.env" ]]; then
+    log_warn "生产环境变量文件不存在: ${DEPLOY_SERVER_DIR}/.env"
+    if [[ -f "${DEPLOY_SERVER_DIR}/.env.example" ]]; then
+      info "参考模板: ${DEPLOY_SERVER_DIR}/.env.example"
     fi
     if ! confirm "继续（将使用默认配置）?" "n"; then
       log_info "部署已取消"
@@ -145,29 +154,20 @@ deploy_backend() {
   log_info "═══════════════════════════════════════════════"
 
   local BACKEND_DIR="${PROJECT_DIR}/backend"
-  cd "$BACKEND_DIR"
 
-  # 创建/激活虚拟环境
-  if [[ ! -d ".venv" ]]; then
-    log_info "创建 Python 虚拟环境..."
-    uv venv
-  fi
-
-  source .venv/bin/activate
+  setup_venv "$BACKEND_DIR"
   log_info "安装/同步依赖..."
-  uv sync --no-dev 2>&1 | tee -a "$LOG_FILE"
+  install_backend_deps "$BACKEND_DIR" 2>&1 | tee -a "$LOG_FILE"
   log_ok "后端依赖安装完成"
 
   # 数据库备份提示
   if confirm "运行迁移前备份数据库?"; then
     log_info "备份数据库中..."
-    bash "${SCRIPT_DIR}/xiaoboserver/backup.sh" 2>&1 | tee -a "$LOG_FILE" || log_warn "数据库备份失败，跳过"
+    bash "${DEPLOY_SERVER_DIR}/backup.sh" 2>&1 | tee -a "$LOG_FILE" || log_warn "数据库备份失败，跳过"
   fi
 
-  # 数据库迁移
-  log_info "运行数据库迁移..."
-  uv run alembic upgrade head 2>&1 | tee -a "$LOG_FILE"
-  log_ok "数据库迁移完成"
+  # 数据库迁移（含版本兼容性检查）
+  check_and_migrate_database "$BACKEND_DIR" true
 
   cd "$PROJECT_DIR"
   echo ""
@@ -190,6 +190,8 @@ deploy_frontend() {
   log_info "构建 (npm run build)..."
   npm run build 2>&1 | tee -a "$LOG_FILE"
   log_ok "前端构建完成"
+
+  copy_standalone_assets "$FRONTEND_DIR" 2>&1 | tee -a "$LOG_FILE"
 
   cd "$PROJECT_DIR"
   echo ""
@@ -244,7 +246,7 @@ verify_deployment() {
     fi
     # HTTP 健康检查
     local frontend_port
-    frontend_port=$(grep -oP '--port \K\d+' "${SCRIPT_DIR}/xiaoboserver/campuskards-frontend.service" 2>/dev/null || echo "3000")
+    frontend_port=$(get_frontend_port)
     if command -v curl &>/dev/null; then
       if curl -sfo /dev/null "http://127.0.0.1:${frontend_port}/" 2>/dev/null; then
         log_ok "前端 HTTP 响应正常 (port ${frontend_port})"
@@ -352,13 +354,11 @@ case "$mode" in
     ;;
   5)
     log_info "模式: 仅运行数据库迁移"
+    detect_python_tool
     if confirm "迁移前备份数据库?"; then
-      bash "${SCRIPT_DIR}/xiaoboserver/backup.sh" 2>&1 | tee -a "$LOG_FILE" || log_warn "备份失败"
+      bash "${DEPLOY_SERVER_DIR}/backup.sh" 2>&1 | tee -a "$LOG_FILE" || log_warn "备份失败"
     fi
-    cd "${PROJECT_DIR}/backend"
-    source .venv/bin/activate
-    uv run alembic upgrade head 2>&1 | tee -a "$LOG_FILE"
-    log_ok "数据库迁移完成"
+    check_and_migrate_database "${PROJECT_DIR}/backend" true
     if confirm "重启后端服务?"; then
       restart_services "backend"
     fi

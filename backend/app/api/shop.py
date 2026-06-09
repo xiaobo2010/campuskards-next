@@ -1,3 +1,4 @@
+import json
 import random
 import secrets
 import time
@@ -9,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import _get_current_user
+from app.core.cache import cache_delete, get_redis
 from app.core.database import get_db
 from app.models import Card, User, UserCard
 from app.schemas.shop import (
@@ -25,6 +27,7 @@ router = APIRouter(prefix="/api/shop", tags=["shop"])
 RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary"]
 FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 8}
 SELECTOR_SESSION_TTL_SEC = 30 * 60
+_SESSION_KEY_PREFIX = "selector_session:"
 
 
 @dataclass
@@ -35,25 +38,71 @@ class SelectorSession:
     rerolled: bool = False
 
 
-# Pending selector opens — cards granted on finalize / reroll only
-_selector_sessions: dict[str, SelectorSession] = {}
+async def _save_selector_session(token: str, session: SelectorSession) -> None:
+    data = json.dumps({
+        "user_id": session.user_id,
+        "card_ids": session.card_ids,
+        "created_at": session.created_at,
+        "rerolled": session.rerolled,
+    })
+    key = f"{_SESSION_KEY_PREFIX}{token}"
+    client = await get_redis()
+    if client:
+        try:
+            await client.setex(key, SELECTOR_SESSION_TTL_SEC, data)
+            return
+        except Exception:
+            pass
+    # Fallback: in-memory (single worker only)
+    _in_memory_sessions[key] = (session, time.time())
 
 
-def _purge_expired_selector_sessions() -> None:
-    now = time.time()
-    expired = [k for k, s in _selector_sessions.items() if now - s.created_at > SELECTOR_SESSION_TTL_SEC]
-    for k in expired:
-        del _selector_sessions[k]
+_in_memory_sessions: dict[str, tuple[SelectorSession, float]] = {}
+_in_memory_sessions_lock = object()
 
 
-def _get_selector_session(token: str, user: User) -> SelectorSession:
-    _purge_expired_selector_sessions()
-    session = _selector_sessions.get(token)
-    if not session:
+async def _get_selector_session(token: str, user: User) -> SelectorSession:
+    key = f"{_SESSION_KEY_PREFIX}{token}"
+    client = await get_redis()
+    raw = None
+    if client:
+        try:
+            raw = await client.get(key)
+        except Exception:
+            pass
+    if not raw:
+        entry = _in_memory_sessions.get(key)
+        if entry:
+            sess, saved_at = entry
+            if time.time() - saved_at > SELECTOR_SESSION_TTL_SEC:
+                del _in_memory_sessions[key]
+                raise HTTPException(status_code=404, detail="选卡会话已过期或不存在")
+            raw = json.dumps({
+                "user_id": sess.user_id,
+                "card_ids": sess.card_ids,
+                "created_at": sess.created_at,
+                "rerolled": sess.rerolled,
+            })
+    if not raw:
         raise HTTPException(status_code=404, detail="选卡会话已过期或不存在")
-    if session.user_id != str(user.id):
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=404, detail="选卡会话数据损坏")
+    if data.get("user_id") != str(user.id):
         raise HTTPException(status_code=403, detail="无权操作此选卡会话")
-    return session
+    return SelectorSession(
+        user_id=data["user_id"],
+        card_ids=data["card_ids"],
+        created_at=data.get("created_at", 0),
+        rerolled=data.get("rerolled", False),
+    )
+
+
+async def _delete_selector_session(token: str) -> None:
+    key = f"{_SESSION_KEY_PREFIX}{token}"
+    await cache_delete(key)
+    _in_memory_sessions.pop(key, None)
 
 
 @dataclass
@@ -450,10 +499,10 @@ async def open_pack_by_id(
     # Selector pack: defer collection grant until finalize / reroll
     if pack_id == "selector" and body.quantity == 1:
         token = secrets.token_urlsafe(32)
-        _selector_sessions[token] = SelectorSession(
+        await _save_selector_session(token, SelectorSession(
             user_id=str(user.id),
             card_ids=[c.id for c in drawn_cards],
-        )
+        ))
         await db.commit()
         await db.refresh(user)
         return await _build_pack_response(
@@ -482,12 +531,12 @@ async def finalize_selector_pack(
     db: AsyncSession = Depends(get_db),
 ) -> OpenPackResponse:
     """Keep all cards from a selector open (skip reroll)."""
-    session = _get_selector_session(body.reroll_token, user)
+    session = await _get_selector_session(body.reroll_token, user)
 
     result = await db.execute(select(Card))
     all_cards = list(result.scalars().all())
     response = await _finalize_selector_session(session, user, db, all_cards)
-    del _selector_sessions[body.reroll_token]
+    await _delete_selector_session(body.reroll_token)
     return response
 
 
@@ -498,7 +547,7 @@ async def reroll_selector_card(
     db: AsyncSession = Depends(get_db),
 ) -> OpenPackResponse:
     """Replace one card slot in a selector open, then grant all cards."""
-    session = _get_selector_session(body.reroll_token, user)
+    session = await _get_selector_session(body.reroll_token, user)
     if session.rerolled:
         raise HTTPException(status_code=400, detail="重抽机会已使用")
     if body.slot_index >= len(session.card_ids):
@@ -513,7 +562,7 @@ async def reroll_selector_card(
     session.rerolled = True
 
     response = await _finalize_selector_session(session, user, db, all_cards)
-    del _selector_sessions[body.reroll_token]
+    await _delete_selector_session(body.reroll_token)
     return response
 
 
