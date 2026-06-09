@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import _get_current_user
 from app.core.database import get_db
 from app.models import Card, User, UserCard
-from app.api.auth import _get_current_user
 from app.schemas.shop import (
     OpenPackRequest,
     OpenPackResponse,
@@ -81,7 +81,22 @@ class PackDef:
     prestige_legendary_prob: float = 0.0
 
 
+def _draw_newbie_pack(all_cards: list[Card]) -> list[Card]:
+    pool = [c for c in all_cards if not c.is_token and c.rarity in ("common", "uncommon")]
+    if len(pool) < 30:
+        pool = [c for c in all_cards if not c.is_token]
+    return random.sample(pool, min(30, len(pool)))
+
+
 PACKS: dict[str, PackDef] = {
+    "newbie": PackDef(
+        id="newbie",
+        name="新手卡包",
+        description="注册即送的 30 张卡牌，助你踏上校园对决之旅。",
+        price_ink=0,
+        cards_count=30,
+        rolls=[],
+    ),
     "basic": PackDef(
         id="basic",
         name="基础卡包",

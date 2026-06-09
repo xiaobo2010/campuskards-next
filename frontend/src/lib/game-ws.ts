@@ -14,6 +14,9 @@ export interface GameWsHandlers {
   onTimerWarning?: (payload: { seconds_left: number; player: string }) => void;
   onTurnTimeout?: (payload: { player: string; reason?: string }) => void;
   onCardPlayed?: (payload: Record<string, unknown>) => void;
+  onUnitMoved?: (payload: { player: string; unit_id: string; to_line: string }) => void;
+  onAbilityUsed?: (payload: { player: string; card_id: string; instance_id: string; target_id?: string | null }) => void;
+  onCombatPhase?: (payload: { player: string }) => void;
   onEffectChoice?: (payload: PendingChoicePayload) => void;
   onChoiceResolved?: (payload: Record<string, unknown>) => void;
   onAttackResult?: (payload: Record<string, unknown>) => void;
@@ -172,8 +175,13 @@ export class GameWsClient {
         this.handlers.onChoiceResolved?.(payload as Record<string, unknown>);
         break;
       case "unit_moved":
+        this.handlers.onUnitMoved?.(payload as { player: string; unit_id: string; to_line: string });
+        break;
       case "ability_used":
+        this.handlers.onAbilityUsed?.(payload as { player: string; card_id: string; instance_id: string; target_id?: string | null });
+        break;
       case "combat_phase":
+        this.handlers.onCombatPhase?.(payload as { player: string });
         break;
       case "game_over":
         this.handlers.onGameOver?.(payload as GameOverPayload);

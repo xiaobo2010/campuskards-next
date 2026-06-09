@@ -1,16 +1,17 @@
 """Add avatar_url to users and level/fragments to user_cards
 
 Revision ID: 002_upgrade_system
-Revises: 001_initial
+Revises: b4c5d6e7f8a9
 Create Date: 2024-01-XX
 
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = '002_upgrade_system'
-down_revision = None  # Set to actual previous revision if exists
+down_revision = 'b4c5d6e7f8a9'
 branch_labels = None
 depends_on = None
 

@@ -58,6 +58,7 @@ const PLAYER_NAV_ITEMS: NavItem[] = [
   { href: "/game/leaderboard", label: "天梯排行", icon: Trophy },
   { href: "/game/history", label: "对战历史", icon: History },
   { href: "/game/matchmaking", label: "开始对战", icon: Swords },
+  { href: "/game/settings", label: "设置", icon: Settings2 },
 ];
 
 const ADMIN_NAV_ITEM: NavItem = {

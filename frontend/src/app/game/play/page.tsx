@@ -300,6 +300,19 @@ function PlayPageInner() {
       onEffectChoice: () => {
         toast.info("请选择效果分支", { duration: 3000 });
       },
+      onUnitMoved: (payload) => {
+        if (payload.player !== viewerRef.current) {
+          toast.info("对手移动了单位", { duration: 2000 });
+        }
+      },
+      onAbilityUsed: (payload) => {
+        if (payload.player !== viewerRef.current) {
+          toast.info("对手发动了能力", { duration: 2000 });
+        }
+      },
+      onCombatPhase: () => {
+        toast.info("进入战斗阶段", { duration: 1500 });
+      },
       onChoiceResolved: () => {
         setChoiceOptionId(null);
         setChoiceAwaitingTarget(false);
