@@ -7,10 +7,38 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .battlefield import Battlefield, BattlefieldSide, MAX_FRONT_LINE, MAX_SUPPORT_LINE, check_corridor_control
-from .card_keywords import infer_unit_type, parse_keywords
+from .card_keywords import infer_unit_type, is_advisor_card, parse_keywords
 from .combat import CombatResult, compute_overflow, resolve_attack
+from .combat_rules import can_attack_target
 from .effect_engine import execute_active_ability, execute_on_deploy, execute_spell
+from .effect_choices import (
+    PendingResolution,
+    branch_needs_target,
+    make_choice_options,
+    parse_battlecry_choice_branches,
+    parse_choice_branches,
+    pending_resolution_public,
+    resolve_branch,
+)
+from .faction_passives import (
+    apply_faction_stat_passives,
+    apply_turn_start_passives,
+    arts_first_command_discount,
+    mark_arts_command_discount_used,
+)
 from .faction_synergy import apply_all_synergies
+from .triggers import (
+    PlayEvent,
+    PlayEventKind,
+    check_traps_on_play,
+    classify_play_event,
+    fire_defender_reactive_units,
+    fire_opponent_play_hooks,
+    fire_turn_end_effects,
+    is_counter_card,
+    is_trap_effect,
+)
+from .unit_status import is_silenced, tick_statuses_for_player
 
 
 class Phase(str, Enum):
@@ -25,10 +53,15 @@ class GameError(Exception):
 
 
 UNIT_CARD_TYPES = frozenset({"character", "unit"})
+SPELL_CARD_TYPES = frozenset({"command", "event", "buff"})
 
 
 def is_unit_card(card_type: str) -> bool:
     return card_type.lower() in UNIT_CARD_TYPES
+
+
+def is_spell_card(card_type: str) -> bool:
+    return (card_type or "").lower() in SPELL_CARD_TYPES
 
 
 @dataclass
@@ -49,14 +82,23 @@ class CardInstance:
     effect_text: str = ""
     effect_code: str = ""
     unit_type: str = "melee"
+    subtype: str = ""
     keywords: set[str] = field(default_factory=set)
     synergy_tags: list[str] = field(default_factory=list)
+    immune_turns: int = 0
+    silenced_turns: int = 0
+    cannot_attack_turns: int = 0
+    controlled_by: int | None = None
+    controlled_until_turn: int = 0
     base_power: int = 0
     base_grit: int = 0
     base_spirit: int = 0
     _synergy_power: int = 0
     _synergy_grit: int = 0
     _synergy_spirit_bonus: int = 0
+    _local_synergy_power: int = 0
+    _faction_passive_power: int = 0
+    _perm_power_mod: int = 0
     _temp_power: int = 0
     _temp_grit: int = 0
     _temp_spirit: int = 0
@@ -77,6 +119,8 @@ class CardInstance:
         return self.spirit > 0
 
     def take_damage(self, amount: int) -> int:
+        if amount > 0 and self.immune_turns > 0:
+            return 0
         actual = min(amount, self.spirit)
         self.spirit -= actual
         return actual
@@ -87,11 +131,14 @@ class CardInstance:
         grit: int,
         spirit_bonus: int,
         tags: list[str],
+        *,
+        local_power: int = 0,
     ) -> None:
         spirit_delta = spirit_bonus - self._synergy_spirit_bonus
         self._synergy_power = power
         self._synergy_grit = grit
         self._synergy_spirit_bonus = spirit_bonus
+        self._local_synergy_power = local_power
         self.synergy_tags = tags
         if spirit_delta > 0:
             self.spirit += spirit_delta
@@ -122,7 +169,12 @@ class CardInstance:
     def _refresh_effective_stats(self) -> None:
         self.power = max(
             0,
-            self.base_power + self._synergy_power + self._temp_power,
+            self.base_power
+            + self._synergy_power
+            + self._local_synergy_power
+            + self._faction_passive_power
+            + self._perm_power_mod
+            + self._temp_power,
         )
         self.grit = max(
             0,
@@ -165,8 +217,13 @@ class GameState:
         self.starting_hp = {1: p1_starting_hp, 2: p2_starting_hp}
         self.attacks_this_turn: dict[int, int] = {1: 0, 2: 0}
         self.commands_played_this_turn: dict[int, int] = {1: 0, 2: 0}
+        self.commands_played_before_current: dict[int, int] = {1: 0, 2: 0}
         self.cost_reduction_next: dict[int, int] = {1: 0, 2: 0}
         self.corridor_controller: int | None = None
+        self.pending_resolution: PendingResolution | None = None
+        self.arts_command_discount_used: dict[int, bool] = {1: False, 2: False}
+        self.reactive_counters: dict[str, int] = {}
+        self.cards_played_this_turn: dict[int, int] = {1: 0, 2: 0}
 
         self.battlefield.player1.deck = self._make_instances(p1_deck_cards, player=1)
         self.battlefield.player2.deck = self._make_instances(p2_deck_cards, player=2)
@@ -197,7 +254,12 @@ class GameState:
 
         self.attacks_this_turn[player] = 0
         self.commands_played_this_turn[player] = 0
+        self.commands_played_before_current[player] = 0
         self.cost_reduction_next[player] = 0
+        self.cards_played_this_turn[player] = 0
+        self.pending_resolution = None
+
+        tick_statuses_for_player(self, player)
 
         for u in side.all_units:
             u.clear_temp_buffs()
@@ -212,6 +274,7 @@ class GameState:
             self._log(player, "corridor_bonus", "+1 ink from corridor control")
 
         self._draw_card(player)
+        apply_turn_start_passives(self, player)
         apply_all_synergies(self)
         self._log(player, "draw_phase", f"ink refilled to {side.ink}")
         self.phase = Phase.MAIN
@@ -231,6 +294,9 @@ class GameState:
         if self.phase not in (Phase.MAIN, Phase.COMBAT):
             raise GameError(f"Cannot end turn during {self.phase.value} phase")
         self._require_current_player()
+        self._require_no_pending()
+        player = self.current_player
+        fire_turn_end_effects(self, player)
         self.phase = Phase.END
         next_player = 2 if self.current_player == 1 else 1
         self._log(self.current_player, "end_turn", f"turn {self.turn} ended")
@@ -259,7 +325,61 @@ class GameState:
 
     def _effective_cost(self, card: CardInstance, player: int) -> int:
         reduction = self.cost_reduction_next.get(player, 0)
+        reduction += arts_first_command_discount(self, player, card)
         return max(0, card.cost - reduction)
+
+    def request_discard(
+        self,
+        player: int,
+        count: int,
+        *,
+        source_card: CardInstance | None = None,
+    ) -> None:
+        side = self.battlefield.side_for(player)
+        if count <= 0 or len(side.hand) < count:
+            return
+        self.pending_resolution = PendingResolution(
+            player=player,
+            card=source_card,
+            context="discard",
+            discard_count=count,
+        )
+        self._log(player, "discard_choice", f"discard {count} card(s)")
+
+    def resolve_discard(self, card_uids: list[str]) -> None:
+        pr = self.pending_resolution
+        if not pr or pr.context != "discard":
+            raise GameError("No pending discard")
+        if pr.player != self.current_player:
+            raise GameError("Not your turn")
+        if len(card_uids) != pr.discard_count:
+            raise GameError(f"Must discard exactly {pr.discard_count} cards")
+        side = self.battlefield.side_for(pr.player)
+        for uid in card_uids:
+            card = self._find_in_list(side.hand, uid)
+            if not card:
+                raise GameError(f"Card {uid} not in hand")
+            side.hand.remove(card)
+            side.graveyard.append(card)
+        side.graveyard.append(card)
+        self.pending_resolution = None
+        self._log(pr.player, "discard", f"discarded {len(card_uids)}")
+        if pr.card and pr.card not in side.graveyard and pr.card not in side.hand:
+            side.graveyard.append(pr.card)
+
+    def _after_card_play(self, player: int, card: CardInstance) -> None:
+        self.cards_played_this_turn[player] = self.cards_played_this_turn.get(player, 0) + 1
+        mark_arts_command_discount_used(self, player, card)
+        event = PlayEvent(
+            actor=player,
+            card=card,
+            kind=classify_play_event(card),
+            cost=card.cost,
+        )
+        fire_opponent_play_hooks(self, event)
+        fire_defender_reactive_units(self, event)
+        apply_faction_stat_passives(self, player)
+        apply_faction_stat_passives(self, 3 - player)
 
     def play_spell(
         self,
@@ -269,6 +389,7 @@ class GameState:
     ) -> CardInstance:
         self._require_phase(Phase.MAIN)
         self._require_current_player()
+        self._require_no_pending()
         player = self.current_player
         side = self.battlefield.side_for(player)
 
@@ -277,6 +398,9 @@ class GameState:
             raise GameError(f"Card {card_uid} not in hand")
         if is_unit_card(card.card_type):
             raise GameError(f"{card.name} is a unit — deploy to a battle line")
+
+        if is_counter_card(card.card_type) or is_trap_effect(card.effect_text or ""):
+            return self.play_trap(card_uid)
 
         cost = self._effective_cost(card, player)
         if cost > side.ink:
@@ -287,11 +411,108 @@ class GameState:
         if self.cost_reduction_next.get(player, 0) > 0:
             self.cost_reduction_next[player] = 0
 
+        event = PlayEvent(
+            actor=player,
+            card=card,
+            kind=classify_play_event(card),
+            cost=cost,
+        )
+        if check_traps_on_play(self, event):
+            side.graveyard.append(card)
+            self._log(player, "play_spell", f"{card.name} cancelled by trap")
+            return card
+
+        effect_text = card.effect_text or card.effect_code or ""
+        branches = parse_choice_branches(effect_text)
+        if branches:
+            self.pending_resolution = PendingResolution(
+                player=player,
+                card=card,
+                context="spell",
+                options=make_choice_options(branches),
+                target_uid=target_uid,
+            )
+            self._log(player, "effect_choice", f"{card.name}: awaiting choice")
+            return card
+
         execute_spell(self, player, card, target_uid=target_uid)
+        if self.pending_resolution and self.pending_resolution.context == "discard":
+            if self.pending_resolution.card is None:
+                self.pending_resolution.card = card
+            return card
         side.graveyard.append(card)
         apply_all_synergies(self)
+        self._after_card_play(player, card)
         self._log(player, "play_spell", f"{card.name} played (ink {side.ink})")
         return card
+
+    def play_trap(self, card_uid: str) -> CardInstance:
+        """Set a counter/trap card from hand."""
+        self._require_phase(Phase.MAIN)
+        self._require_current_player()
+        self._require_no_pending()
+        player = self.current_player
+        side = self.battlefield.side_for(player)
+
+        card = self._find_in_list(side.hand, card_uid)
+        if not card:
+            raise GameError(f"Card {card_uid} not in hand")
+        if not (is_counter_card(card.card_type) or is_trap_effect(card.effect_text or "")):
+            raise GameError(f"{card.name} is not a trap/counter card")
+
+        if not side.can_add_trap():
+            raise GameError("Trap zone is full")
+
+        cost = self._effective_cost(card, player)
+        if cost > side.ink:
+            raise GameError(f"Not enough ink ({side.ink}/{cost})")
+
+        side.hand.remove(card)
+        side.ink -= cost
+        side.traps.append(card)
+        self._log(player, "set_trap", f"{card.name} set (ink {side.ink})")
+        return card
+
+    def resolve_effect_choice(
+        self,
+        choice_id: str,
+        *,
+        target_uid: str | None = None,
+    ) -> None:
+        """Resolve a pending 抉择 branch."""
+        self._require_current_player()
+        pr = self.pending_resolution
+        if not pr:
+            raise GameError("No pending effect choice")
+        if pr.player != self.current_player:
+            raise GameError("Not your turn")
+
+        option = next((o for o in pr.options if o.id == choice_id), None)
+        if not option:
+            raise GameError(f"Invalid choice {choice_id}")
+
+        effective_target = target_uid or pr.target_uid
+        if branch_needs_target(option.branch_text) and not effective_target:
+            raise GameError("This choice requires a target")
+
+        source_unit = pr.card if pr.context != "spell" else None
+        resolve_branch(
+            self,
+            pr.player,
+            option.branch_text,
+            target_uid=effective_target,
+            source_unit=source_unit,
+        )
+
+        side = self.battlefield.side_for(pr.player)
+        if pr.context == "spell" and pr.card:
+            side.graveyard.append(pr.card)
+
+        self.pending_resolution = None
+        apply_all_synergies(self)
+        if pr.card and pr.context == "spell":
+            self._after_card_play(pr.player, pr.card)
+        self._log(pr.player, "resolve_choice", f"{pr.card.name if pr.card else 'discard'}: {option.label}")
 
     def deploy(
         self,
@@ -301,6 +522,7 @@ class GameState:
     ) -> CardInstance:
         self._require_phase(Phase.MAIN)
         self._require_current_player()
+        self._require_no_pending()
         player = self.current_player
         side = self.battlefield.side_for(player)
 
@@ -309,6 +531,18 @@ class GameState:
             raise GameError(f"Card {card_uid} not in hand")
         if not is_unit_card(card.card_type):
             raise GameError(f"{card.name} is not a unit — use play from hand")
+
+        if is_advisor_card(card.effect_text or "", card.subtype):
+            return self._deploy_advisor(card, player, side)
+
+        if (
+            line == "support"
+            and card.unit_type == "melee"
+            and "flying" not in card.keywords
+            and card.unit_type != "ranged"
+            and "ranged" not in card.keywords
+        ):
+            raise GameError("Melee units must deploy to the front line")
 
         cost = self._effective_cost(card, player)
         if cost > side.ink:
@@ -324,14 +558,40 @@ class GameState:
         if self.cost_reduction_next.get(player, 0) > 0:
             self.cost_reduction_next[player] = 0
 
+        event = PlayEvent(
+            actor=player,
+            card=card,
+            kind=PlayEventKind.UNIT,
+            cost=cost,
+        )
+        if check_traps_on_play(self, event):
+            side.graveyard.append(card)
+            self._log(player, "deploy", f"{card.name} cancelled by trap")
+            return card
+
         insert_at = len(target_line) if slot is None else max(0, min(slot, len(target_line)))
         target_line.insert(insert_at, card)
 
         card.summoned_this_turn = True
         card.can_attack = "charge" in card.keywords
 
+        battlecry_branches = parse_battlecry_choice_branches(card.effect_text or "")
+        if battlecry_branches:
+            self.pending_resolution = PendingResolution(
+                player=player,
+                card=card,
+                context="deploy_battlecry",
+                options=make_choice_options(battlecry_branches),
+                deploy_line=line,
+                deploy_slot=insert_at,
+            )
+            apply_all_synergies(self)
+            self._log(player, "effect_choice", f"{card.name}: battlecry choice")
+            return card
+
         execute_on_deploy(self, player, card)
         apply_all_synergies(self)
+        self._after_card_play(player, card)
         self._log(
             player,
             "deploy",
@@ -339,9 +599,61 @@ class GameState:
         )
         return card
 
+    def _deploy_advisor(
+        self,
+        card: CardInstance,
+        player: int,
+        side: BattlefieldSide,
+    ) -> CardInstance:
+        if not side.can_add_advisor_unit():
+            raise GameError("Advisor slots are full")
+        cost = self._effective_cost(card, player)
+        if cost > side.ink:
+            raise GameError(f"Not enough ink ({side.ink}/{cost})")
+        side.hand.remove(card)
+        side.ink -= cost
+        card.can_attack = False
+        side.advisor_units.append(card)
+        execute_on_deploy(self, player, card)
+        apply_all_synergies(self)
+        self._after_card_play(player, card)
+        self._log(player, "deploy_advisor", f"{card.name} → advisor slot")
+        return card
+
+    def move_unit(self, unit_uid: str, to_line: str) -> CardInstance:
+        """Move a unit between front and support lines."""
+        self._require_phase(Phase.MAIN)
+        self._require_current_player()
+        self._require_no_pending()
+        player = self.current_player
+        side = self.battlefield.side_for(player)
+
+        unit = self._find_in_list(side.all_units, unit_uid)
+        if not unit:
+            raise GameError(f"Unit {unit_uid} not found")
+
+        if unit.unit_type == "melee" and "flying" not in unit.keywords and to_line == "support":
+            raise GameError("Melee units cannot move to support line")
+
+        cost = 0 if unit.unit_type == "flying" or "flying" in unit.keywords else 1
+        if cost > side.ink:
+            raise GameError("Not enough ink to move")
+
+        dest = side.front_line if to_line == "front" else side.support_line
+        max_len = MAX_FRONT_LINE if to_line == "front" else MAX_SUPPORT_LINE
+        if len(dest) >= max_len:
+            raise GameError(f"{to_line} line is full")
+
+        side.remove_unit(unit)
+        dest.append(unit)
+        side.ink -= cost
+        self._log(player, "move_unit", f"{unit.name} → {to_line}")
+        return unit
+
     def attack(self, attacker_uid: str, target_uid: str | None = None) -> CombatResult:
         self._require_phase(Phase.COMBAT)
         self._require_current_player()
+        self._require_no_pending()
         player = self.current_player
         side = self.battlefield.side_for(player)
         opponent = self.battlefield.opponent_side(player)
@@ -377,11 +689,12 @@ class GameState:
         if not defender:
             raise GameError(f"Target {target_uid} not found on opponent's side")
 
-        if defender in opponent.support_line and opponent.front_line:
-            if attacker.unit_type == "melee" and "ranged" not in attacker.keywords:
-                raise GameError(
-                    "Cannot attack support line while opponent has units on the front line"
-                )
+        if not can_attack_target(attacker, defender, opponent):
+            raise GameError(
+                "Cannot attack support line while opponent has units on the front line"
+            )
+
+        from .combat_rules import apply_combat_damage_to_unit
 
         result = resolve_attack(
             atk_power,
@@ -391,7 +704,10 @@ class GameState:
         )
 
         overflow = compute_overflow(atk_power, defender.grit, defender.spirit)
-        defender.take_damage(max(0, atk_power - defender.grit))
+        dmg_to_def = max(0, atk_power - defender.grit)
+        apply_combat_damage_to_unit(
+            defender, dmg_to_def, attacker_power=atk_power, is_combat=True
+        )
 
         no_counter = (
             "ranged" in attacker.keywords
@@ -399,7 +715,10 @@ class GameState:
             or "first_strike" in attacker.keywords
         )
         if not no_counter:
-            attacker.take_damage(max(0, defender.power - attacker.grit))
+            counter_dmg = max(0, defender.power - attacker.grit)
+            apply_combat_damage_to_unit(
+                attacker, counter_dmg, attacker_power=defender.power, is_combat=True
+            )
 
         if not defender.alive:
             from .effect_engine import _trigger_deathrattle
@@ -437,12 +756,15 @@ class GameState:
     ) -> None:
         """Activate a unit's on-board ability (主动/激活)."""
         self._require_current_player()
+        self._require_no_pending()
         player = self.current_player
         side = self.battlefield.side_for(player)
 
         unit = self._find_in_list(side.all_units, card_uid)
         if not unit:
             raise GameError(f"Unit {card_uid} not on your battlefield")
+        if is_silenced(unit):
+            raise GameError("该单位已被沉默")
 
         try:
             execute_active_ability(self, player, unit, target_uid=target_uid)
@@ -529,6 +851,7 @@ class GameState:
                     effect_code=cd.get("effect_code", "") or "",
                     unit_type=unit_type,
                     keywords=keywords,
+                    subtype=cd.get("subtype", cd.get("unit_type", "")) or "",
                 )
             )
         return instances
@@ -545,6 +868,15 @@ class GameState:
             raise GameError(
                 f"Expected {expected.value} phase, currently in {self.phase.value}"
             )
+
+    def pending_choice_public(self) -> dict | None:
+        if not self.pending_resolution:
+            return None
+        return pending_resolution_public(self.pending_resolution)
+
+    def _require_no_pending(self) -> None:
+        if self.pending_resolution:
+            raise GameError("Resolve pending effect choice first")
 
     def _require_current_player(self) -> None:
         pass
@@ -568,10 +900,12 @@ def create_game(
     *,
     p1_starting_hp: int = 30,
     p2_starting_hp: int = 30,
+    max_ink_cap: int = 10,
 ) -> GameState:
     return GameState(
         p1_deck_cards=p1_cards,
         p2_deck_cards=p2_cards,
         p1_starting_hp=p1_starting_hp,
         p2_starting_hp=p2_starting_hp,
+        max_ink_cap=max_ink_cap,
     )

@@ -81,6 +81,30 @@ async def game_websocket(
                 elif event == "end_turn":
                     finalize_result = await game_manager.handle_end_turn(room, user_id)
 
+                elif event == "resolve_choice":
+                    finalize_result = await game_manager.handle_resolve_choice(
+                        room,
+                        user_id,
+                        str(payload.get("choice_id", "")),
+                        str(payload.get("target_id")) if payload.get("target_id") else None,
+                    )
+
+                elif event == "resolve_discard":
+                    card_uids = payload.get("card_uids") or []
+                    finalize_result = await game_manager.handle_resolve_discard(
+                        room,
+                        user_id,
+                        [str(c) for c in card_uids],
+                    )
+
+                elif event == "move_unit":
+                    finalize_result = await game_manager.handle_move_unit(
+                        room,
+                        user_id,
+                        str(payload.get("unit_id", "")),
+                        str(payload.get("to_line", "front")),
+                    )
+
                 elif event == "use_ability":
                     finalize_result = await game_manager.handle_use_ability(
                         room,

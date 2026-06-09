@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .local_synergy import compute_local_adjacent_bonus
+
 if TYPE_CHECKING:
     from .game_engine import CardInstance, GameState
 
@@ -82,9 +84,15 @@ def apply_synergies_for_player(game: GameState, player: int) -> None:
 
     for unit in units:
         p, g, s, tags = compute_unit_synergy(unit, counts, attacks_this_turn=attacks)
-        unit.apply_synergy_buffs(p, g, s, tags)
+        local_p, local_tags = compute_local_adjacent_bonus(unit, side)
+        tags = tags + local_tags
+        unit.apply_synergy_buffs(p, g, s, tags, local_power=local_p)
 
 
 def apply_all_synergies(game: GameState) -> None:
     for player in (1, 2):
         apply_synergies_for_player(game, player)
+    from .faction_passives import apply_faction_stat_passives
+
+    for player in (1, 2):
+        apply_faction_stat_passives(game, player)

@@ -1,7 +1,7 @@
 # CampusKards - 前后端 API 差异分析
 
-> 最后更新：2026-06-08  
-> 大部分 P0/P1 缺口已补齐；本文档仅跟踪**仍未实现**或**待对齐**项。
+> 最后更新：2026-06-09  
+> v1 对战引擎机制已补全；本文档跟踪**非对战**或**运维/扩展**类缺口。
 
 ## 已实现模块（前后端已对齐）
 
@@ -18,7 +18,7 @@
 | Admin | ✅ | stats / users / cards / announcements CRUD + pin |
 | Leaderboard | ✅ | 公开 ELO 排行 |
 
-## 已实现（v1）— Match / WebSocket
+## 已实现（v1）— Match / WebSocket / 对战引擎
 
 | 方法 | 路径 | 状态 |
 |------|------|------|
@@ -32,21 +32,30 @@
 
 **前端 `matchmaking` / `play` 已接入** REST + WebSocket（v1 可玩）。
 
-### v1 限制
+### v1 对战引擎（已实现）
 
-- 匹配队列：进程内 + Redis 镜像（`match:queue:quick` / `match:queue:ranked`）
-- 对战状态：Redis 持久化（`match:room:{id}`）；WS 连接仍在单进程内存
-- 多 worker / 水平扩展需 Redis Pub/Sub 广播（未实现）
-- 效果牌：基于 `effect_text` 正则解析，覆盖抽牌/伤害/增益/召唤等常见模式；复杂抉择/条件效果为简化实现
-- `use_ability`：支持含「主动/激活」词条的单位；无主动能力的卡仍返回错误
-- 已实现：五派系协同（`key_class` / `arts_class` / `normal_class` / `intl_class` / `competition_class`）
-- 已实现：走廊控制（前线满员且对手前线空 → 回合开始 +1 墨水）
-- 已实现：`play_card` 的 `slot` 插入阵线指定位置
-- 已实现：远程单位可越过前线攻击支援线；远程攻击不受反击
-- 已实现：ELO≥2000 HQ 生命加成（`User.hq_bonus_hp`）于匹配开局应用
-- 已实现：100s 回合计时、`timer_warning`（≤20s）、超时自动结束回合
-- 已实现：支援线保护（近战单位）、单位/效果牌分流出牌
-- 已实现：战斗结算防重复 finalize、即时匹配 `POST /queue` 返回 `match_id`
+- 五派系**全局协同** + **邻位同派系局部协同**
+- **五派系被动**（重点班减伤、艺体班首张命令减费、普通班数量加攻、国际班手牌加墨、竞赛班少量精锐加攻）
+- **抉择 / 条件分支 / 弃牌选择**（`resolve_choice` / `resolve_discard`）
+- **反制陷阱区**（`play_trap` / 对手出牌触发 / 取消法术）
+- **回合结束 / 对手出牌**时点效果
+- 关键词：**飞行、穿透、先攻、冲锋、远程、免疫、沉默、操控、吞噬**
+- **阵线移动**（`move_unit`，飞行免费）
+- **近战仅上前线**；**军师 Advisor 槽**
+- **卡牌等级**属性进对战；**ELO 墨水上限**加成
+- 走廊控制、slot 部署、远程/支援线、HQ 生命加成、回合计时等
+
+### WS 事件
+
+`join_match` · `play_card` · `attack` · `end_turn` · `use_ability` · `resolve_choice` · `resolve_discard` · `move_unit`
+
+### 仍待扩展（非阻塞 v1）
+
+- 多 worker 对战广播（Redis Pub/Sub）
+- 逐步回放 UI（后端已有 log/snapshot）
+- PVE / 单人练习模式
+- 非单位卡升级 +10%/级 的法术数值缩放（等级已进战场单位属性）
+- 部分极复杂单卡效果仍依赖 `effect_text` 正则，未覆盖的会 no-op
 
 详细规格见 `DEVELOPMENT.md` 第四章 4.10 / 4.11。
 
@@ -58,39 +67,21 @@
 { "id", "username", "email", "elo", "ink", "role", "avatar_url" }
 ```
 
-### Admin Stats (`GET /api/admin/stats`)
-
-```json
-{ "users", "cards", "announcements", "total_ink" }
-```
-
 ### PaginatedResponse
 
 ```json
 { "items": [], "total": 0, "page": 1, "page_size": 20 }
 ```
 
-### UserCardOut (`GET /api/collection`)
-
-```json
-{ "card_id", "count", "level", "fragments", "card": CardOut | null }
-```
-
-### 卡牌类型枚举（种子数据）
-
-`unit` | `command` | `buff` | `counter`（小写）
-
 ## 前端适配注意
 
-1. 认证统一使用 `AuthProvider`（`lib/auth-context.tsx`），墨水/头像通过 `useAuth()` 读写
-2. 公告写操作走 `adminApi`，公开列表走 `announcementsApi`（只读）
-3. 商店卡包列表从 `shopApi.listPacks()` 拉取，UI 样式用本地 `PACK_DISPLAY` 映射
-4. 卡组创建需 30 张，主势力由卡牌多数 `faction_code` 推断
-5. `NEXT_PUBLIC_API_URL` 生产环境必须指向 `https://gapi.xiaobocloud.fun`
-6. 对战：queue → status 轮询 → `ws://<API>/ws/game/{match_id}?token=` → `join_match`
+1. 认证统一使用 `AuthProvider`（`lib/auth-context.tsx`）
+2. 对战：`pending_choice` 含 `discard` 时用 `resolve_discard`
+3. 反制卡从手牌打出即进入 `traps` 区（无需单独按钮）
+4. 双击己方单位 → 主动能力目标选择
 
 ## P2 增强（可选）
 
 - Redis session / token 黑名单
-- Rate limiting（登录、重置密码、排行榜）
-- 完全 Cookie-only 认证（去掉 localStorage token）
+- Rate limiting
+- 完全 Cookie-only 认证

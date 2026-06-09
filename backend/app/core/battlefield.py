@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 MAX_FRONT_LINE = 5  # max units in front line
 MAX_SUPPORT_LINE = 4  # max units in support line
 MAX_ADVISORS = 3  # max advisors per player
+MAX_TRAPS = 3  # max set counter/trap cards per player
 MAX_LINE = MAX_FRONT_LINE  # legacy alias used by game_engine
 
 
@@ -70,6 +71,8 @@ class PlayerField:
     front_line: list[Unit] = field(default_factory=list)
     support_line: list[Unit] = field(default_factory=list)
     advisors: list[Advisor] = field(default_factory=list)
+    advisor_units: list[Unit] = field(default_factory=list)
+    traps: list[Unit] = field(default_factory=list)
     hand: list[Unit] = field(default_factory=list)
     deck: list[Unit] = field(default_factory=list)
     graveyard: list[Unit] = field(default_factory=list)
@@ -90,9 +93,11 @@ class PlayerField:
         """Check if support line has space."""
         return len(self.support_line) < MAX_SUPPORT_LINE
 
-    def can_add_advisor(self) -> bool:
-        """Check if advisor slot is available."""
-        return len(self.advisors) < MAX_ADVISORS
+    def can_add_trap(self) -> bool:
+        return len(self.traps) < MAX_TRAPS
+
+    def can_add_advisor_unit(self) -> bool:
+        return len(self.advisor_units) < MAX_ADVISORS
 
     def remove_unit(self, unit: Unit) -> None:
         """Remove a unit from whichever line it's on."""

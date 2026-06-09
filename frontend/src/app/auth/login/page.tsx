@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { authApi, DEMO_MODE_ENABLED, DEMO_USERNAME, DEMO_PASSWORD } from "@/lib/api";
+import { authApi } from "@/lib/api";
 
 /* ---------- Inner form (needs useSearchParams) ---------- */
 function LoginForm() {
@@ -241,16 +241,6 @@ function LoginForm() {
             >
               {submitting ? "登录中..." : "登 录"}
             </Button>
-            {DEMO_MODE_ENABLED && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-center">
-                <p className="text-xs text-amber-300 font-medium">演示模式已启用（无需后端）</p>
-                <p className="text-[11px] text-amber-200/60 mt-1">
-                  用户名 <code className="px-1 py-0.5 rounded bg-black/30 text-amber-200 font-mono">{DEMO_USERNAME}</code>
-                  {" / "}
-                  密码 <code className="px-1 py-0.5 rounded bg-black/30 text-amber-200 font-mono">{DEMO_PASSWORD}</code>
-                </p>
-              </div>
-            )}
             <p className="text-sm text-zinc-500 text-center">
               还没有账号？{" "}
               <Link

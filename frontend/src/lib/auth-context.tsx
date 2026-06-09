@@ -9,14 +9,7 @@ import React, {
   useRef,
 } from "react";
 import { useRouter } from "next/navigation";
-import {
-  authApi,
-  isDemoCreds,
-  makeDemoTokens,
-  DEMO_USER,
-  isDemoToken,
-  DEMO_MODE_ENABLED,
-} from "./api";
+import { authApi } from "./api";
 import type { User } from "@/types";
 
 interface AuthTokens {
@@ -106,21 +99,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     async function checkSession() {
       try {
-        const at = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-        // Stale demo token when demo mode disabled — clear and treat as logged out
-        if (at && at.startsWith("demo_") && !DEMO_MODE_ENABLED) {
-          clearTokens();
-          return;
-        }
-        if (at && isDemoToken(at)) {
-          if (!cancelled) {
-            setUser({ ...DEMO_USER });
-            setUserInk(DEMO_USER.ink ?? null);
-            setLoading(false);
-          }
-          return;
-        }
-
         // Try cookie-based auth first
         try {
           const u = await authApi.me();
@@ -160,16 +138,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (loginVal: string, password: string, remember = false) => {
-      // Demo mode only: testcase/testcase bypasses backend
-      if (isDemoCreds(loginVal, password)) {
-        const tokens = makeDemoTokens();
-        setTokens(tokens.access_token, tokens.refresh_token);
-        if (remember) localStorage.setItem("campuskards_remember", "true");
-        setUser({ ...DEMO_USER });
-        setUserInk(DEMO_USER.ink ?? null);
-        return;
-      }
-
       const tokens = await authApi.login(loginVal, password, remember);
       setTokens(tokens.access_token, tokens.refresh_token);
       if (remember) localStorage.setItem("campuskards_remember", "true");
@@ -210,13 +178,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    const at = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    if (!at || !isDemoToken(at)) {
-      try {
-        await authApi.logout();
-      } catch {
-        // ignore — still clear local session
-      }
+    try {
+      await authApi.logout();
+    } catch {
+      // ignore — still clear local session
     }
     clearTokens();
     setUser(null);

@@ -1,5 +1,5 @@
 import { API_BASE } from "./config";
-import type { GameOverPayload, GameStatePayload } from "@/types";
+import type { GameOverPayload, GameStatePayload, PendingChoicePayload } from "@/types";
 
 export type WsConnectionStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
@@ -14,6 +14,8 @@ export interface GameWsHandlers {
   onTimerWarning?: (payload: { seconds_left: number; player: string }) => void;
   onTurnTimeout?: (payload: { player: string; reason?: string }) => void;
   onCardPlayed?: (payload: Record<string, unknown>) => void;
+  onEffectChoice?: (payload: PendingChoicePayload) => void;
+  onChoiceResolved?: (payload: Record<string, unknown>) => void;
   onAttackResult?: (payload: Record<string, unknown>) => void;
   onGameOver?: (payload: GameOverPayload) => void;
   onError?: (detail: string) => void;
@@ -110,6 +112,12 @@ export class GameWsClient {
       case "card_played":
         this.handlers.onCardPlayed?.(payload as Record<string, unknown>);
         break;
+      case "effect_choice":
+        this.handlers.onEffectChoice?.(payload as PendingChoicePayload);
+        break;
+      case "choice_resolved":
+        this.handlers.onChoiceResolved?.(payload as Record<string, unknown>);
+        break;
       case "attack_result":
         this.handlers.onAttackResult?.(payload as Record<string, unknown>);
         break;
@@ -135,8 +143,38 @@ export class GameWsClient {
     }
   }
 
-  playCard(cardUid: string, position: "front" | "support" = "front"): void {
-    this.send("play_card", { card_id: cardUid, position });
+  playCard(
+    cardUid: string,
+    position: "front" | "support" = "front",
+    targetId?: string | null
+  ): void {
+    this.send("play_card", {
+      card_id: cardUid,
+      position,
+      ...(targetId ? { target_id: targetId } : {}),
+    });
+  }
+
+  resolveChoice(choiceId: string, targetId?: string | null): void {
+    this.send("resolve_choice", {
+      choice_id: choiceId,
+      ...(targetId ? { target_id: targetId } : {}),
+    });
+  }
+
+  resolveDiscard(cardUids: string[]): void {
+    this.send("resolve_discard", { card_uids: cardUids });
+  }
+
+  moveUnit(unitId: string, toLine: "front" | "support"): void {
+    this.send("move_unit", { unit_id: unitId, to_line: toLine });
+  }
+
+  useAbility(cardUid: string, targetId?: string | null): void {
+    this.send("use_ability", {
+      card_id: cardUid,
+      ...(targetId ? { target_id: targetId } : {}),
+    });
   }
 
   attack(attackerIds: string[], targetId: string | null): void {

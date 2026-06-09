@@ -1,18 +1,4 @@
 import { API_BASE } from "./config";
-import { isDemoSessionActive, makeDemoTokens } from "./demo-mode";
-import { resolveDemoMock } from "./demo-mock-api";
-
-// Re-export demo helpers for auth UI
-export {
-  DEMO_MODE_ENABLED,
-  DEMO_USERNAME,
-  DEMO_PASSWORD,
-  DEMO_USER,
-  isDemoCreds,
-  makeDemoTokens,
-  isDemoToken,
-  isDemoSessionActive,
-} from "./demo-mode";
 import type {
   User,
   Card,
@@ -97,11 +83,6 @@ let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
 async function tryRefreshToken(): Promise<boolean> {
-  if (isDemoSessionActive()) {
-    const tokens = makeDemoTokens();
-    setTokens(tokens.access_token, tokens.refresh_token);
-    return true;
-  }
   if (isRefreshing && refreshPromise) return refreshPromise;
   isRefreshing = true;
   refreshPromise = (async () => {
@@ -144,19 +125,6 @@ async function tryRefreshToken(): Promise<boolean> {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  // Demo session: return mock data without hitting backend
-  if (isDemoSessionActive()) {
-    if (path === "/api/auth/logout" && (options?.method ?? "GET").toUpperCase() === "POST") {
-      clearTokens();
-      return undefined as T;
-    }
-    if (path === "/api/auth/refresh" && (options?.method ?? "GET").toUpperCase() === "POST") {
-      return makeDemoTokens() as T;
-    }
-    const mock = resolveDemoMock<T>(path, options);
-    if (mock !== null) return mock;
-  }
-
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options?.headers as Record<string, string> | undefined),
@@ -204,10 +172,31 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (res.status === 204) return undefined as T;
   const contentType = res.headers.get("content-type") || "";
-  if (contentType.includes("application/json") && res.headers.get("content-length") !== "0") {
-    return res.json() as Promise<T>;
+  if (contentType.includes("application/json")) {
+    const text = await res.text();
+    if (!text.trim()) return undefined as T;
+    return JSON.parse(text) as T;
   }
   return undefined as T;
+}
+
+/** Normalize paginated API payloads (handles legacy bare-array responses). */
+function normalizePaginated<T>(
+  raw: PaginatedResponse<T> | T[] | null | undefined,
+): PaginatedResponse<T> {
+  if (!raw) {
+    return { items: [], total: 0, page: 1, page_size: 0 };
+  }
+  if (Array.isArray(raw)) {
+    return { items: raw, total: raw.length, page: 1, page_size: raw.length };
+  }
+  const items = Array.isArray(raw.items) ? raw.items : [];
+  return {
+    items,
+    total: typeof raw.total === "number" ? raw.total : items.length,
+    page: raw.page ?? 1,
+    page_size: raw.page_size ?? items.length,
+  };
 }
 
 // ---------- Auth API ----------
@@ -287,8 +276,10 @@ export const cardsApi = {
           .map(([k, v]) => [k, String(v)]),
       ).toString();
 
-    const first = await apiFetch<PaginatedResponse<Card>>(`/api/cards${query}`);
-    if (!fetchAll || !first.items || first.items.length === 0) return first;
+    const first = normalizePaginated(
+      await apiFetch<PaginatedResponse<Card> | Card[]>(`/api/cards${query}`),
+    );
+    if (!fetchAll) return first;
     if (first.items.length >= first.total) return first;
 
     const allItems = [...first.items];
@@ -301,8 +292,10 @@ export const cardsApi = {
             .filter(([, v]) => v !== undefined)
             .map(([k, v]) => [k, String(v)]),
         ).toString();
-      const page = await apiFetch<PaginatedResponse<Card>>(`/api/cards${pageQuery}`);
-      if (page.items && page.items.length > 0) {
+      const page = normalizePaginated(
+        await apiFetch<PaginatedResponse<Card> | Card[]>(`/api/cards${pageQuery}`),
+      );
+      if (page.items.length > 0) {
         allItems.push(...page.items);
       } else {
         break;

@@ -233,6 +233,28 @@ export interface BattleUnit {
   can_attack: boolean;
   faction?: string | null;
   card_type?: string | null;
+  synergy_tags?: string[];
+  base_power?: number;
+  unit_type?: string | null;
+  keywords?: string[];
+  immune_turns?: number;
+  silenced_turns?: number;
+  controlled?: boolean;
+}
+
+export interface EffectChoiceOption {
+  id: string;
+  label: string;
+  branch_text: string;
+}
+
+export interface PendingChoicePayload {
+  source_uid: string;
+  source_name: string;
+  context: "spell" | "deploy_battlecry" | "ability" | "discard";
+  target_uid?: string | null;
+  options: EffectChoiceOption[];
+  discard_count?: number;
 }
 
 export interface PlayerBattleView {
@@ -246,6 +268,8 @@ export interface PlayerBattleView {
   pen_count: number;
   hand?: BattleUnit[];
   hand_count?: number;
+  traps?: { uid: string; card_id: string; name: string; cost?: number }[];
+  advisor_units?: BattleUnit[];
 }
 
 export interface GameStatePayload {
@@ -264,6 +288,8 @@ export interface GameStatePayload {
     p1: PlayerBattleView;
     p2: PlayerBattleView;
   };
+  pending_choice?: PendingChoicePayload | null;
+  corridor_controller?: "p1" | "p2" | null;
 }
 
 export interface BattlePackDrop {

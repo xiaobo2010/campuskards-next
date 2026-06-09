@@ -9,6 +9,7 @@ KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {
     "flying": re.compile(r"飞行"),
     "first_strike": re.compile(r"先攻"),
     "pierce": re.compile(r"穿透"),
+    "immune": re.compile(r"免疫"),
 }
 
 RANGED_SUBTYPES = frozenset({"broadcast", "sports"})
@@ -33,6 +34,11 @@ def has_on_deploy(effect_text: str) -> bool:
 
 def has_on_death(effect_text: str) -> bool:
     return bool(re.search(r"亡语", effect_text or ""))
+
+
+def is_advisor_card(effect_text: str, subtype: str | None = None) -> bool:
+    text = effect_text or ""
+    return "军师" in text or (subtype or "").lower() in ("advisor", "teacher")
 
 
 def has_active_ability(effect_text: str) -> bool:

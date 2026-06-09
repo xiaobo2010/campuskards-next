@@ -28,8 +28,16 @@ import BattleCard, {
   PlacementSlot,
 } from "@/components/game/battle/battle-card";
 import BattleResultScreen from "@/components/game/battle/battle-result-screen";
+import EffectChoiceDialog from "@/components/game/battle/effect-choice-dialog";
+import DiscardChoiceDialog from "@/components/game/battle/discard-choice-dialog";
 import { HpBar, InkBadge } from "@/components/game/battle/battle-hud";
-import type { BattleUnit, GameOverPayload, GameStatePayload } from "@/types";
+import { branchNeedsTarget } from "@/lib/effect-choice-utils";
+import type {
+  BattleUnit,
+  EffectChoiceOption,
+  GameOverPayload,
+  GameStatePayload,
+} from "@/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +70,8 @@ function LineRow({
   onUnitClick?: (u: BattleUnit) => void;
   selectedUid?: string | null;
   interactive?: boolean;
+  targetHighlightUid?: string | null;
+  choiceTargetMode?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
@@ -79,6 +89,7 @@ function LineRow({
               unit={u}
               variant="field"
               selected={selectedUid === u.uid}
+              targetHighlight={choiceTargetMode}
               onClick={interactive ? () => onUnitClick?.(u) : undefined}
               disabled={!interactive}
             />
@@ -101,6 +112,7 @@ function DeployLineRow({
   placementCard,
   onPlacementSelect,
   onDropCard,
+  onUnitDoubleClick,
 }: {
   label: string;
   icon?: React.ReactNode;
@@ -108,6 +120,7 @@ function DeployLineRow({
   lineKey: "front" | "support";
   maxSlots: number;
   onUnitClick?: (u: BattleUnit) => void;
+  onUnitDoubleClick?: (u: BattleUnit) => void;
   selectedUid?: string | null;
   interactive?: boolean;
   placementCard?: BattleUnit | null;
@@ -150,6 +163,7 @@ function DeployLineRow({
             variant="field"
             selected={selectedUid === u.uid}
             onClick={interactive ? () => onUnitClick?.(u) : undefined}
+            onDoubleClick={interactive ? () => onUnitDoubleClick?.(u) : undefined}
             disabled={!interactive}
           />
         ))}
@@ -191,6 +205,11 @@ function PlayPageInner() {
   const [gameOver, setGameOver] = useState<GameOverPayload | null>(null);
   const [surrendering, setSurrendering] = useState(false);
   const [placementCard, setPlacementCard] = useState<BattleUnit | null>(null);
+  const [choiceOptionId, setChoiceOptionId] = useState<string | null>(null);
+  const [choiceAwaitingTarget, setChoiceAwaitingTarget] = useState(false);
+  const [discardSelected, setDiscardSelected] = useState<string[]>([]);
+  const [abilityTargetMode, setAbilityTargetMode] = useState<string | null>(null);
+  const [spellTargetMode, setSpellTargetMode] = useState<BattleUnit | null>(null);
 
   const matchId = matchIdFromUrl || storedMatchId;
   const viewer = gameState?.viewer ?? "p1";
@@ -199,6 +218,9 @@ function PlayPageInner() {
   const opp = gameState ? gameState.players[oppKey] : null;
   const isMyTurn = gameState?.current_player === viewer;
   const phase = gameState?.phase ?? "draw";
+  const pendingChoice = gameState?.pending_choice ?? null;
+  const showChoiceDialog =
+    !!pendingChoice && isMyTurn && pendingChoice.context !== "discard";
 
   const {
     secondsLeft,
@@ -230,6 +252,11 @@ function PlayPageInner() {
         syncFromServer(state);
         if (state.match_elapsed != null) setMatchElapsed(state.match_elapsed);
         if (state.game_over) setSelectedAttackerUid(null);
+        if (!state.pending_choice) {
+          setChoiceOptionId(null);
+          setChoiceAwaitingTarget(false);
+          setDiscardSelected([]);
+        }
       },
       onTurnStart: (payload) => {
         onTurnStart(payload);
@@ -256,6 +283,13 @@ function PlayPageInner() {
       onError: (detail) => {
         setLastError(detail);
         toast.error(detail);
+      },
+      onEffectChoice: () => {
+        toast.info("请选择效果分支", { duration: 3000 });
+      },
+      onChoiceResolved: () => {
+        setChoiceOptionId(null);
+        setChoiceAwaitingTarget(false);
       },
       onStatusChange: setConnectionStatus,
     });
@@ -287,6 +321,10 @@ function PlayPageInner() {
   }, [connectionStatus]);
 
   const handlePlayCard = (card: BattleUnit, line: "front" | "support" = "front") => {
+    if (pendingChoice) {
+      toast.info("请先完成效果抉择");
+      return;
+    }
     if (!isMyTurn || phase !== "main" || !me) {
       toast.info("只能在己方主阶段出牌");
       return;
@@ -303,6 +341,28 @@ function PlayPageInner() {
     }
     wsRef.current?.playCard(card.uid, line);
     setPlacementCard(null);
+  };
+
+  const handleSpellWithTarget = (target: BattleUnit) => {
+    if (!spellTargetMode || !isMyTurn) return;
+    wsRef.current?.playCard(spellTargetMode.uid, "front", target.uid);
+    setSpellTargetMode(null);
+  };
+
+  const handleToggleDiscard = (uid: string) => {
+    const need = pendingChoice?.discard_count ?? 0;
+    setDiscardSelected((prev) => {
+      if (prev.includes(uid)) return prev.filter((x) => x !== uid);
+      if (prev.length >= need) return prev;
+      return [...prev, uid];
+    });
+  };
+
+  const handleConfirmDiscard = () => {
+    if (!pendingChoice?.discard_count) return;
+    if (discardSelected.length !== pendingChoice.discard_count) return;
+    wsRef.current?.resolveDiscard(discardSelected);
+    setDiscardSelected([]);
   };
 
   const handleHandDoubleClick = (card: BattleUnit) => {
@@ -329,12 +389,56 @@ function PlayPageInner() {
 
   const handleMyUnitClick = (unit: BattleUnit) => {
     if (!isMyTurn) return;
+    if (abilityTargetMode) {
+      wsRef.current?.useAbility(abilityTargetMode, unit.uid);
+      setAbilityTargetMode(null);
+      return;
+    }
     if (unit.can_attack && (phase === "combat" || phase === "main")) {
       setSelectedAttackerUid(selectedAttackerUid === unit.uid ? null : unit.uid);
     }
   };
 
+  const handleMyUnitDoubleClick = (unit: BattleUnit) => {
+    if (!isMyTurn || phase !== "main") return;
+    setAbilityTargetMode(unit.uid);
+    toast.info("请选择能力目标（或再次双击取消）");
+  };
+
+  const handleChoiceOption = (option: EffectChoiceOption) => {
+    if (!pendingChoice) return;
+    if (branchNeedsTarget(option.branch_text)) {
+      setChoiceOptionId(option.id);
+      setChoiceAwaitingTarget(true);
+      toast.info("请点击目标单位");
+      return;
+    }
+    wsRef.current?.resolveChoice(option.id);
+    setChoiceOptionId(null);
+    setChoiceAwaitingTarget(false);
+  };
+
+  const handleChoiceTarget = (unit: BattleUnit) => {
+    if (!choiceAwaitingTarget || !choiceOptionId) return;
+    wsRef.current?.resolveChoice(choiceOptionId, unit.uid);
+    setChoiceOptionId(null);
+    setChoiceAwaitingTarget(false);
+  };
+
   const handleEnemyUnitClick = (unit: BattleUnit) => {
+    if (spellTargetMode) {
+      handleSpellWithTarget(unit);
+      return;
+    }
+    if (abilityTargetMode) {
+      wsRef.current?.useAbility(abilityTargetMode, unit.uid);
+      setAbilityTargetMode(null);
+      return;
+    }
+    if (choiceAwaitingTarget && choiceOptionId) {
+      handleChoiceTarget(unit);
+      return;
+    }
     if (!selectedAttackerUid || !isMyTurn) return;
     wsRef.current?.attack([selectedAttackerUid], unit.uid);
     setSelectedAttackerUid(null);
@@ -475,12 +579,16 @@ function PlayPageInner() {
                 icon={<Swords className="w-3 h-3" />}
                 units={opp.front_line}
                 onUnitClick={handleEnemyUnitClick}
-                interactive={!!selectedAttackerUid && isMyTurn}
+                interactive={(!!selectedAttackerUid && isMyTurn) || choiceAwaitingTarget}
+                choiceTargetMode={choiceAwaitingTarget}
               />
               <LineRow
                 label="支援"
                 icon={<Shield className="w-3 h-3" />}
                 units={opp.support_line}
+                onUnitClick={handleEnemyUnitClick}
+                interactive={choiceAwaitingTarget}
+                choiceTargetMode={choiceAwaitingTarget}
               />
             </div>
           )}
@@ -502,6 +610,16 @@ function PlayPageInner() {
             <span className="px-2 py-1 rounded-full text-xs bg-zinc-800/80 border border-zinc-700 text-zinc-400">
               {PHASE_LABEL[phase] ?? phase}
             </span>
+            {pendingChoice && isMyTurn && pendingChoice.context !== "discard" && (
+              <span className="px-2 py-1 rounded-full text-xs bg-purple-500/15 border border-purple-500/40 text-purple-300">
+                待抉择
+              </span>
+            )}
+            {gameState?.corridor_controller === viewer && (
+              <span className="px-2 py-1 rounded-full text-xs bg-cyan-500/15 border border-cyan-500/40 text-cyan-300" title="控制走廊：回合开始 +1 墨水">
+                走廊控制
+              </span>
+            )}
           </div>
 
           {selectedAttackerUid && isMyTurn && (
@@ -534,6 +652,9 @@ function PlayPageInner() {
               <div className="text-right text-xs text-zinc-500 space-y-0.5">
                 <InkBadge ink={me.ink} max={me.max_ink} />
                 <p className="mt-1">牌库 {me.deck_count} · 墓地 {me.pen_count}</p>
+                {(me.traps?.length ?? 0) > 0 && (
+                  <p className="text-purple-400">陷阱 {me.traps!.length}</p>
+                )}
               </div>
             </div>
             <div className="space-y-3">
@@ -544,6 +665,7 @@ function PlayPageInner() {
                 lineKey="front"
                 maxSlots={MAX_FRONT_SLOTS}
                 onUnitClick={handleMyUnitClick}
+                onUnitDoubleClick={handleMyUnitDoubleClick}
                 selectedUid={selectedAttackerUid}
                 interactive={isMyTurn}
                 placementCard={placementCard}
@@ -557,6 +679,7 @@ function PlayPageInner() {
                 lineKey="support"
                 maxSlots={MAX_SUPPORT_SLOTS}
                 onUnitClick={handleMyUnitClick}
+                onUnitDoubleClick={handleMyUnitDoubleClick}
                 selectedUid={selectedAttackerUid}
                 interactive={isMyTurn}
                 placementCard={placementCard}
@@ -622,6 +745,31 @@ function PlayPageInner() {
           </div>
         </motion.section>
       </div>
+
+      {pendingChoice && (
+        <EffectChoiceDialog
+          pending={pendingChoice}
+          open={showChoiceDialog}
+          selectedOptionId={choiceOptionId}
+          awaitingTarget={choiceAwaitingTarget}
+          onSelectOption={handleChoiceOption}
+          onCancelSelection={() => {
+            setChoiceOptionId(null);
+            setChoiceAwaitingTarget(false);
+          }}
+        />
+      )}
+
+      {pendingChoice && pendingChoice.context === "discard" && isMyTurn && me?.hand && (
+        <DiscardChoiceDialog
+          pending={pendingChoice}
+          hand={me.hand}
+          open
+          selectedUids={discardSelected}
+          onToggle={handleToggleDiscard}
+          onConfirm={handleConfirmDiscard}
+        />
+      )}
 
       {gameOver && gameState && (
         <BattleResultScreen

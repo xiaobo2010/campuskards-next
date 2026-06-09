@@ -43,6 +43,50 @@ const RARITY_GLOW: Record<string, string> = {
 
 const PAGE_SIZE = 12;
 
+/** Merge catalog cards with nested card objects from the user's collection. */
+function buildCollectionState(
+  catalog: Card[],
+  owned: UserCardOwnership[],
+): {
+  cards: Card[];
+  ownedSet: Set<string>;
+  ownedMap: Map<string, UserCardOwnership>;
+} {
+  const byId = new Map<string, Card>();
+  for (const card of catalog) {
+    byId.set(String(card.id), card);
+  }
+
+  const ownedSet = new Set<string>();
+  const ownedMap = new Map<string, UserCardOwnership>();
+  for (const entry of owned) {
+    const id = String(entry.card_id);
+    ownedSet.add(id);
+    ownedMap.set(id, entry);
+    if (entry.card) {
+      const cardId = String(entry.card.id ?? entry.card_id);
+      if (!byId.has(cardId)) {
+        byId.set(cardId, entry.card);
+      }
+    }
+  }
+
+  return { cards: Array.from(byId.values()), ownedSet, ownedMap };
+}
+
+function matchesCardType(cardType: string, filter: string): boolean {
+  if (!filter) return true;
+  const normalized = cardType.toLowerCase();
+  const aliases: Record<string, string[]> = {
+    unit: ["unit", "character"],
+    spell: ["spell", "event", "command", "buff"],
+    building: ["building"],
+    counter: ["counter", "snitch"],
+  };
+  const allowed = aliases[filter] ?? [filter];
+  return allowed.includes(normalized);
+}
+
 export default function CollectionPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [ownedSet, setOwnedSet] = useState<Set<string>>(new Set());
@@ -67,16 +111,16 @@ export default function CollectionPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const allCardsRes = await cardsApi.list({ page: 1, page_size: 500, fetchAll: true });
-      setCards(allCardsRes.items ?? []);
+      const [allCardsRes, ownedRes] = await Promise.all([
+        cardsApi.list({ page: 1, page_size: 500, fetchAll: true }),
+        collectionApi.list(),
+      ]);
 
-      const ownedRes = await collectionApi.list();
-      const ids = new Set<string>();
-      const map = new Map<string, UserCardOwnership>();
-      for (const o of ownedRes ?? []) {
-        ids.add(o.card_id);
-        map.set(o.card_id, o);
-      }
+      const { cards: merged, ownedSet: ids, ownedMap: map } = buildCollectionState(
+        allCardsRes.items ?? [],
+        ownedRes ?? [],
+      );
+      setCards(merged);
       setOwnedSet(ids);
       setOwnedMap(map);
     } catch (err) {
@@ -104,9 +148,9 @@ export default function CollectionPage() {
       if (filters.faction && c.faction_code !== filters.faction) return false;
       if (filters.rarity && c.rarity !== filters.rarity) return false;
       if (filters.cost && c.cost !== Number(filters.cost)) return false;
-      if (filters.type && c.card_type !== filters.type) return false;
-      if (filters.owned === "owned" && !ownedSet.has(c.id)) return false;
-      if (filters.owned === "unowned" && ownedSet.has(c.id)) return false;
+      if (filters.type && !matchesCardType(c.card_type, filters.type)) return false;
+      if (filters.owned === "owned" && !ownedSet.has(String(c.id))) return false;
+      if (filters.owned === "unowned" && ownedSet.has(String(c.id))) return false;
       return true;
     });
   }, [cards, ownedSet, filters]);
@@ -218,8 +262,8 @@ export default function CollectionPage() {
               >
                 <option value="">全部类型</option>
                 <option value="unit">单位</option>
-                <option value="spell">法术</option>
-                <option value="building">建筑</option>
+                <option value="spell">法术/事件</option>
+                <option value="counter">反击</option>
               </select>
 
               <select
@@ -269,8 +313,8 @@ export default function CollectionPage() {
                 }}
               >
                 {pagedCards.map((card) => {
-                  const isOwned = ownedSet.has(card.id);
-                  const ownership = ownedMap.get(card.id);
+                  const isOwned = ownedSet.has(String(card.id));
+                  const ownership = ownedMap.get(String(card.id));
                   const rarity = card.rarity || "common";
 
                   return (
@@ -364,7 +408,7 @@ export default function CollectionPage() {
         {modalOpen && (
           <CardDetailModal
             card={selectedCard}
-            ownership={selectedCard ? ownedMap.get(selectedCard.id) : null}
+            ownership={selectedCard ? ownedMap.get(String(selectedCard.id)) : null}
             open={modalOpen}
             onOpenChange={setModalOpen}
             onUpgradeSuccess={handleUpgradeSuccess}

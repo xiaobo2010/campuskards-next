@@ -33,7 +33,7 @@ def _unit_public(unit: CardInstance) -> dict:
         "power": unit.power,
         "spirit": unit.spirit,
         "grit": unit.grit,
-        "can_attack": unit.can_attack and not unit.has_attacked,
+        "can_attack": unit.can_attack and not unit.has_attacked and unit.cannot_attack_turns <= 0,
         "faction": unit.faction,
         "card_type": unit.card_type,
         "unit_type": unit.unit_type,
@@ -41,6 +41,18 @@ def _unit_public(unit: CardInstance) -> dict:
         "synergy_tags": unit.synergy_tags,
         "base_power": unit.base_power,
         "base_spirit": unit.base_spirit,
+        "immune_turns": unit.immune_turns,
+        "silenced_turns": unit.silenced_turns,
+        "controlled": unit.controlled_by is not None,
+    }
+
+
+def _trap_public(card: CardInstance) -> dict:
+    return {
+        "uid": card.uid,
+        "card_id": card.card_id,
+        "name": card.name,
+        "cost": card.cost,
     }
 
 
@@ -56,6 +68,8 @@ def _player_view(game: GameState, player_num: int, *, reveal_hand: bool) -> dict
         "support_line": [_unit_public(u) for u in side.support_line],
         "deck_count": len(side.deck),
         "pen_count": len(side.graveyard),
+        "traps": [_trap_public(t) for t in side.traps],
+        "advisor_units": [_unit_public(u) for u in side.advisor_units],
     }
     if reveal_hand:
         view["hand"] = [_unit_public(u) for u in side.hand]
@@ -95,6 +109,7 @@ def build_game_state(
         "corridor_controller": (
             player_key(game.corridor_controller) if game.corridor_controller else None
         ),
+        "pending_choice": game.pending_choice_public(),
     }
 
 

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Swords, Droplets } from "lucide-react";
 import type { BattleUnit } from "@/types";
 import { cn } from "@/lib/utils";
+import { synergyTagMeta } from "@/lib/synergy-labels";
 
 const FACTION_STYLES: Record<string, string> = {
   key_class: "from-blue-700 via-blue-800 to-indigo-900 border-blue-500/40",
@@ -30,6 +31,30 @@ interface BattleCardProps {
   onDragEnd?: () => void;
   onDoubleClick?: () => void;
   placementPending?: boolean;
+  targetHighlight?: boolean;
+}
+
+function SynergyBadges({ tags }: { tags?: string[] }) {
+  if (!tags?.length) return null;
+  return (
+    <div className="absolute top-6 right-0.5 flex flex-col gap-0.5 z-[1]">
+      {tags.map((tag) => {
+        const meta = synergyTagMeta(tag);
+        return (
+          <span
+            key={tag}
+            title={meta.title}
+            className={cn(
+              "text-[8px] font-bold px-1 rounded border leading-tight",
+              meta.className
+            )}
+          >
+            {meta.short}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function BattleCard({
@@ -44,6 +69,7 @@ export default function BattleCard({
   onDragEnd,
   onDoubleClick,
   placementPending,
+  targetHighlight,
 }: BattleCardProps) {
   const isHand = variant === "hand";
   const grad = factionStyle(unit.faction);
@@ -62,6 +88,7 @@ export default function BattleCard({
         isHand ? "w-[4.5rem] h-[6.5rem] sm:w-20 sm:h-[7.5rem]" : "w-20 h-28 sm:w-[5.5rem] sm:h-32",
         selected && "ring-2 ring-amber-400 border-amber-400 scale-105 z-10 shadow-lg shadow-amber-500/25",
         placementPending && "ring-2 ring-purple-400 border-purple-400 animate-pulse",
+        targetHighlight && "ring-2 ring-amber-400 border-amber-400 shadow-lg shadow-amber-500/30",
         disabled && "opacity-45 cursor-not-allowed grayscale-[0.3]",
         !affordable && isHand && "opacity-60",
         unit.can_attack && !disabled && !isHand && "shadow-[0_0_12px_rgba(251,191,36,0.4)]"
@@ -76,6 +103,28 @@ export default function BattleCard({
 
       {unit.can_attack && !isHand && (
         <Swords className="absolute top-1 right-1 w-3.5 h-3.5 text-amber-300 drop-shadow" />
+      )}
+
+      {!isHand && <SynergyBadges tags={unit.synergy_tags} />}
+
+      {!isHand && unit.immune_turns != null && unit.immune_turns > 0 && (
+        <span className="absolute bottom-8 left-1 text-[8px] px-1 rounded bg-yellow-900/70 text-yellow-200 border border-yellow-500/40" title="免疫">
+          免
+        </span>
+      )}
+      {!isHand && unit.silenced_turns != null && unit.silenced_turns > 0 && (
+        <span className="absolute bottom-8 right-1 text-[8px] px-1 rounded bg-zinc-800/90 text-zinc-400 border border-zinc-500/40" title="沉默">
+          默
+        </span>
+      )}
+
+      {unit.base_power != null && unit.base_power !== unit.power && !isHand && (
+        <span
+          className="absolute top-1 left-7 text-[8px] font-mono text-emerald-300 bg-black/40 px-0.5 rounded"
+          title={`基础力量 ${unit.base_power}`}
+        >
+          +{unit.power - unit.base_power}
+        </span>
       )}
 
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent p-1.5 pt-6">

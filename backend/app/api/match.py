@@ -65,6 +65,10 @@ async def _start_match(
     p2_user = await db.get(User, uuid.UUID(ticket.p2_id))
     p1_hp = 30 + (p1_user.hq_bonus_hp if p1_user else 0)
     p2_hp = 30 + (p2_user.hq_bonus_hp if p2_user else 0)
+    from app.core.card_level_stats import elo_bonus_max_ink
+
+    p1_ink = 10 + (elo_bonus_max_ink(p1_user.elo) if p1_user else 0)
+    p2_ink = 10 + (elo_bonus_max_ink(p2_user.elo) if p2_user else 0)
 
     match_row = Match(
         id=uuid.UUID(ticket.match_id),
@@ -83,6 +87,8 @@ async def _start_match(
         p2_cards,
         p1_starting_hp=p1_hp,
         p2_starting_hp=p2_hp,
+        p1_max_ink=p1_ink,
+        p2_max_ink=p2_ink,
     )
     room.p1_faction = p1_deck.faction_code
     room.p2_faction = p2_deck.faction_code

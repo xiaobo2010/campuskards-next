@@ -84,13 +84,19 @@ class GameManager:
         *,
         p1_starting_hp: int = 30,
         p2_starting_hp: int = 30,
+        p1_max_ink: int = 10,
+        p2_max_ink: int = 10,
     ) -> GameRoom:
+        max_cap = max(p1_max_ink, p2_max_ink, 10)
         game = create_game(
             p1_cards,
             p2_cards,
             p1_starting_hp=p1_starting_hp,
             p2_starting_hp=p2_starting_hp,
+            max_ink_cap=max_cap,
         )
+        game.battlefield.player1.max_ink = min(game.battlefield.player1.max_ink, p1_max_ink)
+        game.battlefield.player2.max_ink = min(game.battlefield.player2.max_ink, p2_max_ink)
         room = GameRoom(
             match_id=ticket.match_id,
             mode=ticket.mode,
@@ -261,6 +267,8 @@ class GameManager:
         target_id: str | None = None,
     ) -> dict[str, Any] | None:
         async with room.lock:
+            if room.game.pending_resolution:
+                raise GameError("Resolve pending effect choice first")
             player = room.player_slot(user_id)
             if player is None or room.game.current_player != player:
                 raise GameError("Not your turn")
@@ -299,12 +307,83 @@ class GameManager:
                     "position": None,
                     "slot": None,
                     "card_type": played.card_type,
+                    "pending_choice": room.game.pending_choice_public() is not None,
                 })
+
+            if room.game.pending_resolution:
+                await self._broadcast(room, "effect_choice", room.game.pending_choice_public())
 
             await self._broadcast_states(room)
             await self._persist_room(room)
             await self._check_game_over(room)
 
+        return await self._after_action(room)
+
+    async def handle_resolve_choice(
+        self,
+        room: GameRoom,
+        user_id: str,
+        choice_id: str,
+        target_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        async with room.lock:
+            player = room.player_slot(user_id)
+            if player is None or room.game.current_player != player:
+                raise GameError("Not your turn")
+            if not room.game.pending_resolution:
+                raise GameError("No pending effect choice")
+
+            room.game.resolve_effect_choice(choice_id, target_uid=target_id)
+            await self._broadcast(room, "choice_resolved", {
+                "player": player_key(player),
+                "choice_id": choice_id,
+                "target_id": target_id,
+            })
+            await self._broadcast_states(room)
+            await self._persist_room(room)
+            await self._check_game_over(room)
+
+        return await self._after_action(room)
+
+    async def handle_resolve_discard(
+        self,
+        room: GameRoom,
+        user_id: str,
+        card_uids: list[str],
+    ) -> dict[str, Any] | None:
+        async with room.lock:
+            player = room.player_slot(user_id)
+            if player is None or room.game.current_player != player:
+                raise GameError("Not your turn")
+            room.game.resolve_discard(card_uids)
+            await self._broadcast(room, "discard_resolved", {
+                "player": player_key(player),
+                "card_uids": card_uids,
+            })
+            await self._broadcast_states(room)
+            await self._persist_room(room)
+            await self._check_game_over(room)
+        return await self._after_action(room)
+
+    async def handle_move_unit(
+        self,
+        room: GameRoom,
+        user_id: str,
+        unit_id: str,
+        to_line: str,
+    ) -> dict[str, Any] | None:
+        async with room.lock:
+            player = room.player_slot(user_id)
+            if player is None or room.game.current_player != player:
+                raise GameError("Not your turn")
+            moved = room.game.move_unit(unit_id, to_line)
+            await self._broadcast(room, "unit_moved", {
+                "player": player_key(player),
+                "unit_id": moved.uid,
+                "to_line": to_line,
+            })
+            await self._broadcast_states(room)
+            await self._persist_room(room)
         return await self._after_action(room)
 
     async def handle_use_ability(
@@ -550,6 +629,9 @@ game_manager = GameManager()
 
 
 async def expand_deck_cards(db: AsyncSession, deck: Deck) -> list[dict]:
+    from app.core.card_level_stats import apply_level_to_card_dict
+    from app.models import UserCard
+
     stmt = select(DeckCard).where(DeckCard.deck_id == deck.id)
     result = await db.execute(stmt)
     entries = result.scalars().all()
@@ -557,13 +639,22 @@ async def expand_deck_cards(db: AsyncSession, deck: Deck) -> list[dict]:
     cards_result = await db.execute(select(Card).where(Card.id.in_(card_ids)))
     cards_map = {c.id: c for c in cards_result.scalars().all()}
 
+    uc_result = await db.execute(
+        select(UserCard).where(
+            UserCard.user_id == deck.user_id,
+            UserCard.card_id.in_(card_ids),
+        )
+    )
+    levels_map = {uc.card_id: uc.level or 1 for uc in uc_result.scalars().all()}
+
     expanded: list[dict] = []
     for entry in entries:
         card = cards_map.get(entry.card_id)
         if not card:
             continue
+        level = levels_map.get(entry.card_id, 1)
         for _ in range(entry.quantity):
-            expanded.append({
+            row = {
                 "id": card.id,
                 "name": card.name,
                 "cost": card.cost,
@@ -574,6 +665,9 @@ async def expand_deck_cards(db: AsyncSession, deck: Deck) -> list[dict]:
                 "card_type": card.card_type or "character",
                 "effect_text": card.effect_text or "",
                 "effect_code": card.effect_code or "",
-                "subtype": getattr(card, "subtype", None),
-            })
+                "subtype": getattr(card, "unit_type", None) or "",
+            }
+            expanded.append(
+                apply_level_to_card_dict(row, level=level, unit_type=row.get("subtype"))
+            )
     return expanded

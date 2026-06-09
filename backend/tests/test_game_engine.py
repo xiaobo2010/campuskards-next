@@ -117,7 +117,11 @@ class TestDeploy:
     def test_deploy_to_support(self):
         game = make_game(hand_size=3)
         side = game.battlefield.player1
-        card = side.hand[0]
+        card = CardInstance(
+            card_id="ranged1", name="Archer", cost=2, power=2, grit=1, spirit=3,
+            base_power=2, unit_type="ranged", keywords={"ranged"}, owner=1,
+        )
+        side.hand.append(card)
         game.deploy(card.uid, "support")
         assert card in side.support_line
 
@@ -354,8 +358,9 @@ class TestFactionSynergy:
         self._deploy_faction_units(game, "key_class", 2, power=2)
         apply_synergies_for_player(game, 1)
         for u in game.battlefield.player1.front_line:
-            assert u.power == 3
+            assert u.power == 4  # +1 elite global + +1 adjacent
             assert "elite_synergy" in u.synergy_tags
+            assert "adjacent_synergy" in u.synergy_tags
 
     def test_rush_synergy_after_two_attacks(self):
         from app.core.faction_synergy import apply_synergies_for_player
@@ -378,7 +383,7 @@ class TestFactionSynergy:
         game.deploy(unit.uid, "front")
         game.attacks_this_turn[1] = 2
         apply_synergies_for_player(game, 1)
-        assert unit.power == 5
+        assert unit.power == 7  # +2 rush synergy + +2 competition passive
         assert "rush_synergy" in unit.synergy_tags
 
 
@@ -446,8 +451,141 @@ class TestSpellEffects:
         side.ink = 5
         deck_before = len(side.deck)
         game.play_spell(spell.uid)
+        assert game.pending_resolution is not None
+        discard_uids = [side.hand[0].uid]
+        game.resolve_discard(discard_uids)
         assert spell in side.graveyard
         assert len(side.deck) == deck_before - 2
+
+
+# ─── Local adjacent synergy ───
+
+class TestLocalSynergy:
+    def test_adjacent_same_faction_bonus(self):
+        from app.core.faction_synergy import apply_synergies_for_player
+
+        game = make_game(hand_size=3)
+        side = game.battlefield.player1
+        u1 = CardInstance(
+            card_id="a", name="A", cost=1, power=2, grit=1, spirit=3,
+            base_power=2, faction="key_class", owner=1,
+        )
+        u2 = CardInstance(
+            card_id="b", name="B", cost=1, power=2, grit=1, spirit=3,
+            base_power=2, faction="key_class", owner=1,
+        )
+        side.front_line.extend([u1, u2])
+        apply_synergies_for_player(game, 1)
+        assert u1.power == 4
+        assert u2.power == 4
+        assert "adjacent_synergy" in u1.synergy_tags
+        assert "adjacent_synergy" in u2.synergy_tags
+
+    def test_no_adjacent_bonus_different_faction(self):
+        from app.core.faction_synergy import apply_synergies_for_player
+
+        game = make_game(hand_size=3)
+        side = game.battlefield.player1
+        u1 = CardInstance(
+            card_id="a", name="A", cost=1, power=2, grit=1, spirit=3,
+            base_power=2, faction="key_class", owner=1,
+        )
+        u2 = CardInstance(
+            card_id="b", name="B", cost=1, power=2, grit=1, spirit=3,
+            base_power=2, faction="arts_class", owner=1,
+        )
+        side.front_line.extend([u1, u2])
+        apply_synergies_for_player(game, 1)
+        assert "adjacent_synergy" not in u1.synergy_tags
+
+
+# ─── Effect choices ───
+
+class TestEffectChoices:
+    def test_spell_choice_pending(self):
+        game = make_game(hand_size=3)
+        side = game.battlefield.player1
+        spell = CardInstance(
+            card_id="choice_spell",
+            name="Fork",
+            cost=2,
+            power=0,
+            grit=0,
+            spirit=0,
+            card_type="command",
+            effect_text="抉择：抽3张牌 或 召唤3个1/1/1的召唤物",
+            owner=1,
+        )
+        side.hand.append(spell)
+        side.ink = 5
+        deck_before = len(side.deck)
+        game.play_spell(spell.uid)
+        assert game.pending_resolution is not None
+        assert spell not in side.graveyard
+        assert spell not in side.hand
+        assert len(side.deck) == deck_before
+
+        game.resolve_effect_choice("0")
+        assert game.pending_resolution is None
+        assert spell in side.graveyard
+        assert len(side.deck) == deck_before - 3
+
+    def test_battlecry_choice_pending(self):
+        game = make_game(hand_size=3)
+        side = game.battlefield.player1
+        unit = CardInstance(
+            card_id="bc_choice",
+            name="Chooser",
+            cost=3,
+            power=2,
+            grit=1,
+            spirit=3,
+            base_power=2,
+            card_type="character",
+            effect_text="出场时：抉择——抽1张牌 或 对一个敌方单位造成2点伤害",
+            owner=1,
+        )
+        side.hand.append(unit)
+        side.ink = 5
+        defender = CardInstance(
+            card_id="def", name="Def", cost=1, power=1, grit=0, spirit=3, owner=2,
+        )
+        game.battlefield.player2.front_line.append(defender)
+        game.deploy(unit.uid, "front")
+        assert game.pending_resolution is not None
+        assert unit in side.front_line
+        game.resolve_effect_choice("1", target_uid=defender.uid)
+        assert defender.spirit == 1
+
+    def test_conditional_command_damage(self):
+        game = make_game(hand_size=3)
+        side = game.battlefield.player1
+        side.ink = 99
+        first = CardInstance(
+            card_id="cmd1", name="First", cost=1, power=0, grit=0, spirit=0,
+            card_type="command", effect_text="抽1张牌", owner=1,
+        )
+        side.hand.append(first)
+        game.play_spell(first.uid)
+
+        spell = CardInstance(
+            card_id="cmd2",
+            name="Conditional",
+            cost=2,
+            power=0,
+            grit=0,
+            spirit=0,
+            card_type="command",
+            effect_text="造成2点伤害。若本回合已打出另一张命令卡，改为3点",
+            owner=1,
+        )
+        side.hand.append(spell)
+        defender = CardInstance(
+            card_id="def", name="Def", cost=1, power=1, grit=0, spirit=5, owner=2,
+        )
+        game.battlefield.player2.front_line.append(defender)
+        game.play_spell(spell.uid, target_uid=defender.uid)
+        assert defender.spirit == 2
 
 
 # ─── Snapshot ───

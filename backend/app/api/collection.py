@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.api.auth import _get_current_user
 from app.models import User, UserCard, Card
+from app.schemas.card import CardOut
 from app.schemas.collection import UserCardOut
 from app.api.cards import upgrade_card as cards_upgrade_card
 
@@ -32,11 +33,11 @@ async def get_collection(
     user_cards = result.scalars().all()
     return [
         UserCardOut(
-            card_id=uc.card_id,
+            card_id=str(uc.card_id),
             count=uc.count,
             level=uc.level or 1,
             fragments=uc.fragments or 0,
-            card=uc.card if uc.card else None,
+            card=CardOut.model_validate(uc.card) if uc.card else None,
         )
         for uc in user_cards
     ]

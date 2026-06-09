@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, Palette } from "lucide-react";
+import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { DEMO_MODE_ENABLED } from "@/lib/api";
+
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
 import { UserAvatar } from "@/components/game/user-avatar";
 
@@ -39,9 +39,6 @@ export default function MobileHeader() {
     { href: "/game/shop", icon: ShoppingBag, label: "商店" },
     { href: "/game/leaderboard", icon: Trophy, label: "排名" },
     { href: "/game/history", icon: History, label: "战绩" },
-    ...(DEMO_MODE_ENABLED
-      ? [{ href: "/game/verify", icon: Palette, label: "UI 验证" }]
-      : []),
     ...(user?.role === "admin"
       ? [{ href: "/game/admin", icon: Settings2, label: "管理游戏" }]
       : []),

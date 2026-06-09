@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -61,7 +61,7 @@ async def list_cards(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CardOut]:
-    stmt = select(Card).where(Card.is_token == False)
+    stmt = select(Card).where(or_(Card.is_token.is_(False), Card.is_token.is_(None)))
 
     if faction:
         stmt = stmt.where(Card.faction_code == faction)
