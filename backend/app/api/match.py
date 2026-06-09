@@ -10,14 +10,14 @@ from app.api.decks import _load_deck, _validate_deck_entries
 from app.core.database import get_db
 from app.models import Deck, Match, User
 from app.schemas.match import (
+    EloTimelinePoint,
     MatchDetailResponse,
     MatchHistoryItem,
-    MatchStatsResponse,
-    EloTimelinePoint,
     MatchQueueCancelResponse,
     MatchQueueRequest,
     MatchQueueResponse,
     MatchQueueStatusResponse,
+    MatchStatsResponse,
     MatchSurrenderResponse,
     MatchUserInfo,
     OpponentInfo,
@@ -26,6 +26,7 @@ from app.schemas.match import (
 )
 from app.services.game_manager import expand_deck_cards, game_manager
 from app.services.matchmaking import ESTIMATED_WAIT_MS, MatchTicket, QueueEntry, matchmaking
+from app.services.pve_ai import elo_to_difficulty
 from app.services.pve_bot import BOT_DECK_ID, BOT_USER_ID, BOT_USERNAME, ensure_pve_bot
 
 router = APIRouter(prefix="/api/match", tags=["match"])
@@ -84,6 +85,12 @@ async def _start_match(
     db.add(match_row)
     await db.commit()
 
+    bot_difficulty = None
+    if str(ticket.p2_id) == str(BOT_USER_ID):
+        bot_difficulty = elo_to_difficulty(ticket.p2_elo)
+    elif str(ticket.p1_id) == str(BOT_USER_ID):
+        bot_difficulty = elo_to_difficulty(ticket.p1_elo)
+
     room = await game_manager.create_room(
         ticket,
         p1_cards,
@@ -92,6 +99,7 @@ async def _start_match(
         p2_starting_hp=p2_hp,
         p1_max_ink=p1_ink,
         p2_max_ink=p2_ink,
+        bot_difficulty=bot_difficulty,
     )
     room.p1_faction = p1_deck.faction_code
     room.p2_faction = p2_deck.faction_code
@@ -189,7 +197,7 @@ async def start_pve_match(
         p1_deck_id=str(body.deck_id),
         p2_id=str(BOT_USER_ID),
         p2_username=BOT_USERNAME,
-        p2_elo=1000,
+        p2_elo=user.elo,
         p2_deck_id=str(BOT_DECK_ID),
     )
     await _start_match(db, ticket)

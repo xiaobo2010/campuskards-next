@@ -1,7 +1,7 @@
 import logging
-from pathlib import Path
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,17 +15,18 @@ from app.api.admin import router as admin_router
 from app.api.announcements import router as announcements_router
 from app.api.auth import router as auth_router
 from app.api.cards import router as cards_router
+from app.api.checkin import router as checkin_router
 from app.api.collection import router as collection_router
 from app.api.decks import router as decks_router
-from app.api.checkin import router as checkin_router
-from app.api.shop import router as shop_router
-from app.api.user import router as user_router
 from app.api.leaderboard import router as leaderboard_router
 from app.api.match import router as match_router
-from app.ws.game import ws_router
+from app.api.shop import router as shop_router
+from app.api.user import router as user_router
 from app.core.cache import close_redis, get_redis
 from app.core.config import settings
 from app.services.game_manager import game_manager
+from app.services.match_events_bus import get_worker_id
+from app.ws.game import ws_router
 
 
 @asynccontextmanager
@@ -41,8 +42,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("Database not reachable on startup: %s", exc)
 
     await game_manager.start()
+
+    # ── AI 自动补位快速匹配 ──
+    from app.core.database import async_session
+    from app.services.matchmaking import matchmaking
+    from app.services.pve_bot import ensure_pve_bot
+
+    async def handle_bot_match(ticket) -> None:
+        async with async_session() as db:
+            try:
+                await ensure_pve_bot(db)
+                from app.api.match import _start_match
+                await _start_match(db, ticket)
+            except Exception as exc:
+                logger.warning("Bot fill failed for %s: %s", ticket.match_id, exc)
+                await matchmaking.clear_active_match(ticket.p1_id)
+
+    matchmaking.set_bot_match_callback(handle_bot_match)
+    matchmaking.start_bot_fill()
+
     yield
     # ── 关闭：释放连接池 ──
+    matchmaking.stop_bot_fill()
     await game_manager.stop()
     await engine.dispose()
     await close_redis()
@@ -116,4 +137,5 @@ async def health_check():
         "status": "ok" if db_ok else "degraded",
         "database": "connected" if db_ok else "unreachable",
         "redis": "ok" if redis_ok else "unavailable",
+        "worker_id": get_worker_id(),
     }

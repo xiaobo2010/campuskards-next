@@ -12,8 +12,9 @@ from fastapi import WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.game_engine import GameError, GameState, Phase, create_game, is_unit_card
+from app.core.cache import cache_set_nx
 from app.core.database import async_session
+from app.core.game_engine import GameError, GameState, Phase, create_game, is_unit_card
 from app.core.game_protocol import (
     TIMER_WARNING_SECONDS,
     TURN_TIMER_SECONDS,
@@ -25,14 +26,23 @@ from app.models import Card, Deck, DeckCard, Match, User
 from app.services.battle_rewards import apply_battle_rewards
 from app.services.elo import calculate_elo_changes
 from app.services.game_state_store import (
+    claim_room_owner,
     delete_room,
     hydrate_game_from_data,
+    is_room_owner,
     load_room_data,
+    register_presence,
     save_room,
+    timer_lock_key,
+    unregister_presence,
 )
+from app.services.leaderboard_cache import invalidate_leaderboard_cache
 from app.services.match_events_bus import (
+    ROOM_CREATED_EVENT,
     STATE_REFRESH_EVENT,
+    get_worker_id,
     publish_match_event,
+    publish_room_created,
     start_match_events_bus,
     stop_match_events_bus,
 )
@@ -54,6 +64,7 @@ class GameRoom:
     p2_deck_id: str
     p1_faction: str | None = None
     p2_faction: str | None = None
+    bot_difficulty: str | None = None
     connections: dict[str, WebSocket] = field(default_factory=dict)
     joined: set[str] = field(default_factory=set)
     elo_changes: dict[str, int] = field(default_factory=dict)
@@ -62,6 +73,7 @@ class GameRoom:
     _timer_generation: int = 0
     _warning_sent: bool = False
     _finalized: bool = False
+    _version: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def player_slot(self, user_id: str) -> int | None:
@@ -103,13 +115,19 @@ class GameManager:
         payload: dict[str, Any],
         _origin: str,
     ) -> None:
-        room = await self.get_room(match_id)
+        room = await self.get_room(match_id, prefer_redis=True)
         if not room:
             return
-        if event == STATE_REFRESH_EVENT:
+
+        if event in (STATE_REFRESH_EVENT, ROOM_CREATED_EVENT):
+            await self._sync_room_from_redis(room)
             await self._broadcast_states_local(room)
-        else:
-            await self._broadcast_local(room, event, payload)
+            if room.connections and room.turn_deadline and not room.game.game_over:
+                await self._schedule_turn_timer(room)
+            return
+
+        await self._sync_room_from_redis(room)
+        await self._broadcast_local(room, event, payload)
 
     async def create_room(
         self,
@@ -121,6 +139,7 @@ class GameManager:
         p2_starting_hp: int = 30,
         p1_max_ink: int = 10,
         p2_max_ink: int = 10,
+        bot_difficulty: str | None = None,
     ) -> GameRoom:
         max_cap = max(p1_max_ink, p2_max_ink, 10)
         game = create_game(
@@ -142,16 +161,47 @@ class GameManager:
             p2_username=ticket.p2_username,
             p1_deck_id=ticket.p1_deck_id,
             p2_deck_id=ticket.p2_deck_id,
+            bot_difficulty=bot_difficulty,
         )
         async with self._lock:
             self._rooms[ticket.match_id] = room
         await save_room(room)
+        await claim_room_owner(ticket.match_id)
+        await publish_room_created(ticket.match_id)
         await matchmaking.register_active_match(ticket)
         return room
 
+    async def _sync_room_from_redis(self, room: GameRoom) -> bool:
+        """Merge newer Redis state into the local room (keeps WS connections)."""
+        data = await load_room_data(room.match_id)
+        if not data:
+            return False
+        remote_ver = int(data.get("version", 0))
+        if remote_ver <= room._version:
+            return False
+
+        connections = room.connections
+        joined = room.joined
+        timer_gen = room._timer_generation
+        warning_sent = room._warning_sent
+        finalized = room._finalized
+
+        refreshed = self._room_from_data(data)
+        refreshed._version = remote_ver
+        refreshed.connections = connections
+        refreshed.joined = joined
+        refreshed._timer_generation = timer_gen
+        refreshed._warning_sent = warning_sent
+        refreshed._finalized = data.get("finalized", finalized)
+        refreshed.elo_changes = room.elo_changes
+
+        async with self._lock:
+            self._rooms[room.match_id] = refreshed
+        return True
+
     def _room_from_data(self, data: dict[str, Any]) -> GameRoom:
         game = hydrate_game_from_data(data)
-        return GameRoom(
+        room = GameRoom(
             match_id=data["match_id"],
             mode=data.get("mode", "quick"),
             game=game,
@@ -165,7 +215,10 @@ class GameManager:
             p2_faction=data.get("p2_faction"),
             match_started_at=data.get("match_started_at", time.time()),
             turn_deadline=data.get("turn_deadline"),
+            bot_difficulty=data.get("bot_difficulty"),
         )
+        room._version = int(data.get("version", 0))
+        return room
 
     def _timer_remaining(self, room: GameRoom) -> int:
         if room.turn_deadline is None:
@@ -181,6 +234,8 @@ class GameManager:
         room._warning_sent = False
 
     async def _schedule_turn_timer(self, room: GameRoom) -> None:
+        if not room.connections and not await is_room_owner(room.match_id):
+            return
         generation = room._timer_generation
         asyncio.create_task(self._run_turn_timer(room, generation))
 
@@ -205,6 +260,14 @@ class GameManager:
         if room.turn_deadline and room.turn_deadline > now:
             await asyncio.sleep(room.turn_deadline - now)
         if room._timer_generation != generation or room.game.game_over:
+            return
+
+        acquired = await cache_set_nx(
+            timer_lock_key(room.match_id),
+            get_worker_id(),
+            ttl=10,
+        )
+        if not acquired:
             return
 
         await self._handle_turn_timeout(room)
@@ -238,7 +301,22 @@ class GameManager:
         await self._schedule_turn_timer(room)
         await self._maybe_run_bot(room)
 
-    async def get_room(self, match_id: str) -> GameRoom | None:
+    async def get_room(self, match_id: str, *, prefer_redis: bool = False) -> GameRoom | None:
+        if prefer_redis:
+            data = await load_room_data(match_id)
+            if data:
+                async with self._lock:
+                    existing = self._rooms.get(match_id)
+                if existing:
+                    await self._sync_room_from_redis(existing)
+                    async with self._lock:
+                        return self._rooms.get(match_id)
+                room = self._room_from_data(data)
+                room._finalized = data.get("finalized", False)
+                async with self._lock:
+                    self._rooms[match_id] = room
+                return room
+
         async with self._lock:
             room = self._rooms.get(match_id)
             if room:
@@ -252,7 +330,12 @@ class GameManager:
         room._finalized = data.get("finalized", False)
         async with self._lock:
             self._rooms[match_id] = room
-        if not room.game.game_over and room.turn_deadline and room.turn_deadline > time.time():
+        if (
+            room.connections
+            and not room.game.game_over
+            and room.turn_deadline
+            and room.turn_deadline > time.time()
+        ):
             await self._schedule_turn_timer(room)
         return room
 
@@ -268,6 +351,11 @@ class GameManager:
 
     async def _persist_room(self, room: GameRoom) -> None:
         await save_room(room)
+        await publish_match_event(
+            room.match_id,
+            STATE_REFRESH_EVENT,
+            {"version": room._version},
+        )
 
     async def connect(self, match_id: str, user_id: str, ws: WebSocket) -> GameRoom:
         room = await self.get_room(match_id)
@@ -278,12 +366,15 @@ class GameManager:
         if user_id not in (room.p1_id, room.p2_id):
             raise ValueError("not_participant")
         room.connections[user_id] = ws
+        await register_presence(match_id, user_id)
+        await claim_room_owner(match_id)
         return room
 
     async def disconnect(self, match_id: str, user_id: str) -> None:
         room = await self.get_room(match_id)
         if room:
             room.connections.pop(user_id, None)
+            await unregister_presence(match_id, user_id)
 
     async def handle_join(self, room: GameRoom, user_id: str) -> None:
         if is_bot_user(user_id):
@@ -580,6 +671,7 @@ class GameManager:
                 room.elo_changes = {"p1": w_delta, "p2": l_delta}
             else:
                 room.elo_changes = {"p1": l_delta, "p2": w_delta}
+            await invalidate_leaderboard_cache()
         else:
             room.elo_changes = {"p1": 0, "p2": 0}
 
@@ -644,7 +736,7 @@ class GameManager:
         return payload
 
     async def _maybe_run_bot(self, room: GameRoom) -> None:
-        if room.mode != "pve" or room.game.game_over:
+        if room.game.game_over:
             return
         bot_id = room.p2_id if is_bot_user(room.p2_id) else (
             room.p1_id if is_bot_user(room.p1_id) else None
@@ -666,7 +758,8 @@ class GameManager:
             async with room.lock:
                 if room.game.game_over or room.game.current_player != bot_slot:
                     return
-                actions = decide_bot_actions(room.game, bot_slot)
+                difficulty = room.bot_difficulty or "medium"
+                actions = decide_bot_actions(room.game, bot_slot, difficulty=difficulty)
                 if not actions:
                     return
                 action = actions[0]

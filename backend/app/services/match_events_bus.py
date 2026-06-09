@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Awaitable, Callable
 
-from app.core.cache import get_redis
+from app.core.cache import get_redis, get_redis_pubsub
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,7 @@ CHANNEL_PREFIX = "match:broadcast:"
 WORKER_ID = uuid.uuid4().hex[:8]
 
 STATE_REFRESH_EVENT = "__state_refresh__"
+ROOM_CREATED_EVENT = "__room_created__"
 
 DeliverFn = Callable[[str, str, dict, str], Awaitable[None]]
 
@@ -22,12 +23,16 @@ _subscriber_task: asyncio.Task | None = None
 _deliver: DeliverFn | None = None
 
 
+def get_worker_id() -> str:
+    return WORKER_ID
+
+
 async def start_match_events_bus(deliver: DeliverFn) -> None:
     """Subscribe to match broadcast channels; invoke *deliver* for remote events."""
     global _subscriber_task, _deliver
     _deliver = deliver
 
-    client = await get_redis()
+    client = await get_redis_pubsub()
     if not client:
         logger.info("Match events bus disabled (Redis unavailable)")
         return
@@ -79,7 +84,7 @@ async def _listen(pubsub) -> None:
         logger.warning("Match events bus listener stopped: %s", exc)
     finally:
         try:
-            await pubsub.unsubscribe()
+            await pubsub.punsubscribe(f"{CHANNEL_PREFIX}*")
             await pubsub.aclose()
         except Exception:
             pass
@@ -99,8 +104,14 @@ async def publish_match_event(
         "event": event,
         "payload": payload or {},
         "origin": WORKER_ID,
+        "version": payload.get("version") if payload and "version" in payload else None,
     })
     try:
         await client.publish(f"{CHANNEL_PREFIX}{match_id}", body)
     except Exception as exc:
         logger.warning("Failed to publish match event %s/%s: %s", match_id, event, exc)
+
+
+async def publish_room_created(match_id: str) -> None:
+    """Notify all workers that a new room blob is available in Redis."""
+    await publish_match_event(match_id, ROOM_CREATED_EVENT, {"match_id": match_id})

@@ -259,5 +259,6 @@ def serialize_room_meta(room: Any) -> dict[str, Any]:
         "match_started_at": room.match_started_at,
         "turn_deadline": room.turn_deadline,
         "finalized": getattr(room, "_finalized", False),
+        "bot_difficulty": getattr(room, "bot_difficulty", None),
         "game": serialize_game(room.game),
     }
