@@ -140,10 +140,18 @@ export default function MatchmakingPage() {
       setSearchTime(0);
       toast.info("已取消匹配");
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // User was just matched — redirect to game instead of cancelling
+        const matchId = err.message.match(/[0-9a-f-]{36}/)?.[0];
+        if (matchId) {
+          setCurrentGame(matchId, null);
+          toast.success("已匹配到对手，正在进入对局...");
+          setTimeout(() => router.push(`/game/play?match_id=${matchId}`), 800);
+          return;
+        }
+      }
       const msg = err instanceof ApiError ? err.message : "取消匹配失败";
       toast.error(msg + "，稍后重试");
-      // Still reset UI since the user wants to leave, but keep searching state
-      // so they know to retry
     }
   };
 

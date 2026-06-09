@@ -103,6 +103,7 @@ class CardInstance:
     _temp_grit: int = 0
     _temp_spirit: int = 0
     summoned_this_turn: bool = False
+    duration: int = -1  # permanent (-1), or turns remaining for advisor/temporary units
 
     def __post_init__(self) -> None:
         if not self.base_power and self.power:
@@ -510,7 +511,7 @@ class GameState:
 
         self.pending_resolution = None
         apply_all_synergies(self)
-        if pr.card and pr.context == "spell":
+        if pr.card and pr.context in ("spell", "deploy_battlecry"):
             self._after_card_play(pr.player, pr.card)
         self._log(pr.player, "resolve_choice", f"{pr.card.name if pr.card else 'discard'}: {option.label}")
 
@@ -612,6 +613,18 @@ class GameState:
             raise GameError(f"Not enough ink ({side.ink}/{cost})")
         side.hand.remove(card)
         side.ink -= cost
+        if self.cost_reduction_next.get(player, 0) > 0:
+            self.cost_reduction_next[player] = 0
+        event = PlayEvent(
+            actor=player,
+            card=card,
+            kind=PlayEventKind.UNIT,
+            cost=cost,
+        )
+        if check_traps_on_play(self, event):
+            side.graveyard.append(card)
+            self._log(player, "deploy_advisor", f"{card.name} cancelled by trap")
+            return card
         card.can_attack = False
         side.advisor_units.append(card)
         execute_on_deploy(self, player, card)
@@ -738,6 +751,8 @@ class GameState:
         if not attacker.alive:
             side.remove_unit(attacker)
             side.graveyard.append(attacker)
+            _trigger_deathrattle(self, attacker.owner, attacker)
+            self._check_death(player)
 
         apply_all_synergies(self)
         self._log(
@@ -817,7 +832,7 @@ class GameState:
             "power": unit.power,
             "grit": unit.grit,
             "spirit": unit.spirit,
-            "can_attack": unit.can_attack and not unit.has_attacked,
+            "can_attack": unit.can_attack and not unit.has_attacked and unit.cannot_attack_turns <= 0,
             "synergy_tags": unit.synergy_tags,
             "unit_type": unit.unit_type,
             "keywords": sorted(unit.keywords),

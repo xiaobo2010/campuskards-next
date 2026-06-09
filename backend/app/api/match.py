@@ -223,6 +223,14 @@ async def leave_queue(
 ) -> MatchQueueCancelResponse:
     removed = await matchmaking.dequeue(str(user.id), mode=mode)  # type: ignore[arg-type]
     if not removed:
+        # Check if user was just matched — dequeue failed because they're in an active match
+        status = await matchmaking.get_status(str(user.id))
+        if status.get("status") == "matched":
+            match_id = status.get("match_id")
+            raise HTTPException(
+                status_code=409,
+                detail=f"已进入对局 {match_id}，无法取消",
+            )
         raise HTTPException(status_code=400, detail="当前不在匹配队列中")
     return MatchQueueCancelResponse()
 

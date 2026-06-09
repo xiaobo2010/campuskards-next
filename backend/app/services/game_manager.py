@@ -712,6 +712,22 @@ class GameManager:
             match_row.mode = room.mode
             match_row.end_reason = reason
             match_row.replay_data = battle_report
+        else:
+            logger.error("Match row %s not found during finalization — creating late", room.match_id)
+            match_row = Match(
+                id=uuid.UUID(room.match_id),
+                p1_id=uuid.UUID(room.p1_id),
+                p2_id=uuid.UUID(room.p2_id),
+                p1_deck_id=uuid.UUID(room.p1_deck_id),
+                p2_deck_id=uuid.UUID(room.p2_deck_id),
+                mode=room.mode,
+                winner_id=uuid.UUID(winner_id),
+                ended_at=datetime.now(UTC),
+                turns_played=room.game.turn,
+                end_reason=reason,
+                replay_data=battle_report,
+            )
+            db.add(match_row)
 
         room._timer_generation += 1
         room.turn_deadline = None

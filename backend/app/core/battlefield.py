@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from units import Unit
+    from .game_engine import CardInstance as Unit
 
 
 MAX_FRONT_LINE = 5  # max units in front line

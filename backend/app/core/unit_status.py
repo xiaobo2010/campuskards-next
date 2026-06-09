@@ -12,13 +12,13 @@ def tick_statuses_for_player(game: GameState, player: int) -> None:
     for unit in side.all_units:
         tick_unit_statuses(unit, game.turn)
     expired: list = []
-    for adv in side.advisors:
+    for adv in side.advisor_units:
         if adv.duration != -1:
             adv.duration -= 1
             if adv.duration <= 0:
                 expired.append(adv)
     for adv in expired:
-        side.advisors.remove(adv)
+        side.advisor_units.remove(adv)
 
 
 def tick_unit_statuses(unit: CardInstance, turn: int) -> None:
@@ -30,7 +30,7 @@ def tick_unit_statuses(unit: CardInstance, turn: int) -> None:
         unit.cannot_attack_turns -= 1
         if unit.cannot_attack_turns <= 0:
             unit.can_attack = True
-    if unit.controlled_by and unit.controlled_until_turn and turn > unit.controlled_until_turn:
+    if unit.controlled_by is not None and unit.controlled_until_turn > 0 and turn > unit.controlled_until_turn:
         unit.controlled_by = None
         unit.controlled_until_turn = 0
 

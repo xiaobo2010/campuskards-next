@@ -248,7 +248,6 @@ def execute_effect_text(
     buff = _parse_stat_buff(text)
     if buff and (re.search(r"使.*?\+", text) or re.search(r"进入.*?\+", text)):
         pw, sp = _resolve_conditional_buff(game, player, text, default_pw=buff[0], default_sp=buff[1])
-        pw, sp = _parse_stat_buff(text) or (pw, sp)
         target = _find_target(
             game,
             player,
