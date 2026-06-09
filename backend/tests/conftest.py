@@ -3,11 +3,19 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.compiler import compiles
 
 from app.core.config import settings
 from app.main import app
 from app.models import Base
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, compiler, **kw):
+    return "JSON"
+
 
 # 测试用 SQLite 内存库
 TEST_DB_URL = "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
