@@ -72,6 +72,29 @@ export default function BattleCard({
   targetHighlight,
 }: BattleCardProps) {
   const isHand = variant === "hand";
+
+  if (unit.card_type === "hq") {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          "relative rounded-xl border-2 bg-gradient-to-b from-red-900 via-red-950 to-zinc-950 border-red-500/50 text-left overflow-hidden shrink-0",
+          "w-20 h-28 sm:w-[5.5rem] sm:h-32",
+          targetHighlight && "ring-2 ring-amber-400 border-amber-400 shadow-lg shadow-amber-500/30",
+          disabled && "opacity-60 cursor-not-allowed",
+        )}
+      >
+        <div className="flex flex-col items-center justify-center h-full p-1 text-center gap-1">
+          <span className="text-[9px] text-red-300/80">🏴 总部</span>
+          <span className="text-xs font-bold text-red-200">{unit.spirit}</span>
+          <span className="text-[9px] text-red-400/60">HP</span>
+        </div>
+      </button>
+    );
+  }
+
   const grad = factionStyle(unit.faction);
 
   const cardButton = (

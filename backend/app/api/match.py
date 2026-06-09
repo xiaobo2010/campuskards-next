@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.auth import _get_current_user
 from app.api.decks import _load_deck, _validate_deck_entries
 from app.core.database import get_db
+from app.core.game_engine import GameError
 from app.models import Deck, Match, User
 from app.schemas.match import (
     EloTimelinePoint,
@@ -30,6 +32,7 @@ from app.services.pve_ai import elo_to_difficulty
 from app.services.pve_bot import BOT_DECK_ID, BOT_USER_ID, BOT_USERNAME, ensure_pve_bot
 
 router = APIRouter(prefix="/api/match", tags=["match"])
+logger = logging.getLogger(__name__)
 
 
 def _match_result(match: Match, user_id: uuid.UUID) -> str:
@@ -453,11 +456,16 @@ async def surrender_match(
         raise HTTPException(status_code=404, detail="对战未在进行中或已结束")
     if str(user.id) not in (room.p1_id, room.p2_id):
         raise HTTPException(status_code=403, detail="无权操作此对战")
+    if room.game.game_over:
+        raise HTTPException(status_code=400, detail="对局已结束")
 
     try:
         result = await game_manager.handle_surrender(room, str(user.id), db)
-    except Exception as exc:
+    except GameError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Surrender failed for match %s user %s", match_id, user.id)
+        raise HTTPException(status_code=500, detail=f"投降处理失败：{exc}") from exc
 
     slot = "p1" if str(user.id) == room.p1_id else "p2"
     elo_change = result["elo_change"].get(slot, 0)

@@ -28,7 +28,7 @@ USER_STATE_KEY = "match:user:"
 MATCH_USER_KEY = "match:active:"
 ELO_RANGE = 200
 ESTIMATED_WAIT_MS = 15000
-BOT_WAIT_SECONDS = 15
+BOT_WAIT_SECONDS = 60
 
 
 @dataclass

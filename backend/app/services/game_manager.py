@@ -790,7 +790,8 @@ class GameManager:
                 finalize = await self._execute_bot_action(room, bot_id, action)
                 if finalize:
                     return
-            except GameError:
+            except Exception:
+                logger.exception("Bot action failed for %s: %s", bot_id, action.kind)
                 need_end_turn = False
                 async with room.lock:
                     if room.game.phase.value == "COMBAT":

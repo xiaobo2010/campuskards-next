@@ -59,13 +59,32 @@ def _trap_public(card: CardInstance) -> dict:
 def _player_view(game: GameState, player_num: int, *, reveal_hand: bool) -> dict:
     side = game.battlefield.side_for(player_num)
     max_hp = game.starting_hp.get(player_num, STARTING_HP)
+    support_line = [_unit_public(u) for u in side.support_line]
+    # Append HQ pseudo-unit for face-attack targeting
+    support_line.append({
+        "uid": f"hq_{player_num}",
+        "card_id": "hq",
+        "name": "玩家总部",
+        "cost": 0,
+        "power": 0,
+        "spirit": side.spirit_total,
+        "grit": 0,
+        "can_attack": False,
+        "card_type": "hq",
+        "keywords": [],
+        "synergy_tags": [],
+        "unit_type": "hq",
+        "base_power": 0,
+        "base_spirit": 0,
+        "controlled": False,
+    })
     view: dict = {
         "hp": side.spirit_total,
         "max_hp": max_hp,
         "ink": side.ink,
         "max_ink": side.max_ink,
         "front_line": [_unit_public(u) for u in side.front_line],
-        "support_line": [_unit_public(u) for u in side.support_line],
+        "support_line": support_line,
         "deck_count": len(side.deck),
         "pen_count": len(side.graveyard),
         "traps": [_trap_public(t) for t in side.traps],

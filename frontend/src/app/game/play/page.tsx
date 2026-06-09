@@ -486,7 +486,11 @@ function PlayPageInner() {
       return;
     }
     if (!selectedAttackerUid || !isMyTurn) return;
-    wsRef.current?.attack([selectedAttackerUid], unit.uid);
+    if (unit.card_type === "hq") {
+      wsRef.current?.attack([selectedAttackerUid], null);
+    } else {
+      wsRef.current?.attack([selectedAttackerUid], unit.uid);
+    }
     setSelectedAttackerUid(null);
   };
 
@@ -633,7 +637,7 @@ function PlayPageInner() {
                 icon={<Shield className="w-3 h-3" />}
                 units={opp.support_line}
                 onUnitClick={handleEnemyUnitClick}
-                interactive={choiceAwaitingTarget}
+                interactive={(!!selectedAttackerUid && isMyTurn) || choiceAwaitingTarget}
                 choiceTargetMode={choiceAwaitingTarget}
               />
             </div>
