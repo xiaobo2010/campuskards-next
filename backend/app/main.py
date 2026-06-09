@@ -4,10 +4,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import select
 
@@ -127,10 +126,32 @@ app.include_router(leaderboard_router)
 app.include_router(match_router)
 app.include_router(ws_router)
 
-# Mount uploads directory for serving avatar images
+# Serve uploaded files (avatars) with proper error handling
 uploads_path = Path(__file__).parent / "uploads"
 uploads_path.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=uploads_path), name="uploads")
+_RESOLVED_UPLOADS = uploads_path.resolve()
+
+_MEDIA_MAP = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+@app.get("/uploads/{file_path:path}")
+async def serve_upload(file_path: str):
+    full_path = (uploads_path / file_path).resolve()
+    # Path traversal guard
+    if not str(full_path).startswith(str(_RESOLVED_UPLOADS)):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if not full_path.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
+    return FileResponse(
+        full_path,
+        media_type=_MEDIA_MAP.get(ext, "application/octet-stream"),
+    )
 
 
 @app.exception_handler(Exception)

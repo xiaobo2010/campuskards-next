@@ -59,7 +59,7 @@ class Card(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
     name_en: Mapped[str] = mapped_column(String(64), default="")
-    faction_code: Mapped[str] = mapped_column(ForeignKey("factions.code"))
+    faction_code: Mapped[str] = mapped_column(String(32), ForeignKey("factions.code"))
     card_type: Mapped[str] = mapped_column(String(16))  # character / event / snitch
     unit_type: Mapped[str | None] = mapped_column(String(20))  # rep/jock/grind_lord/disciplinarian/gossip_squad
     cost: Mapped[int] = mapped_column()
@@ -95,7 +95,7 @@ class Deck(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(64))
-    faction_code: Mapped[str] = mapped_column(ForeignKey("factions.code"))
+    faction_code: Mapped[str] = mapped_column(String(64), ForeignKey("factions.code"))
     ally_faction_code: Mapped[str | None] = mapped_column(String(32))
     is_default: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
