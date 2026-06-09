@@ -67,7 +67,7 @@ async def add_to_collection(
     if uc:
         uc.count += body.count
     else:
-        db.add(UserCard(user_id=user.id, card_id=card_id, count=body.count, level=1, fragments=0))
+        db.add(UserCard(user_id=_admin.id, card_id=card_id, count=body.count, level=1, fragments=0))
     await db.commit()
     return {"card_id": card_id, "added": body.count}
 

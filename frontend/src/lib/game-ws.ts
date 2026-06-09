@@ -57,17 +57,12 @@ export class GameWsClient {
 
   connect(): void {
     const token = this.getToken();
-    if (!token) {
-      this.handlers.onError?.("未登录，无法连接对战");
-      this.handlers.onStatusChange?.("error");
-      return;
-    }
 
     this.closed = false;
     this.handlers.onStatusChange?.("connecting");
 
     const url = `${getWsBase()}/ws/game/${this.matchId}`;
-    const ws = new WebSocket(url, [token]);
+    const ws = token ? new WebSocket(url, [token]) : new WebSocket(url);
     this.ws = ws;
 
     ws.onopen = () => {
@@ -93,9 +88,15 @@ export class GameWsClient {
       this.handlers.onStatusChange?.("error");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.stopHeartbeat();
       if (!this.closed) {
+        if (ev.code === 4401 || ev.code === 4403 || ev.code === 4404) {
+          this.closed = true;
+          this.handlers.onError?.(ev.reason || "WebSocket 连接被拒绝");
+          this.handlers.onStatusChange?.("error");
+          return;
+        }
         this.handlers.onStatusChange?.("disconnected");
         this.tryReconnect();
       }

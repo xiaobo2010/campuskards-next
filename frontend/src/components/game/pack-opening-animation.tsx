@@ -397,12 +397,19 @@ export function PackOpeningAnimation({
   }, [phase, startDrawing, revealNext]);
 
   const handleClose = useCallback(async () => {
-    if (selectorMode && phase !== "submitting" && phase !== "sealed" && phase !== "rerolling") {
+    if (selectorMode) {
+      if (phase === "submitting" || phase === "rerolling") return;
+      if (phase === "sealed" || phase === "drawing") return;
+      if (phase !== "selecting") {
+        onClose();
+        return;
+      }
       setPhase("submitting");
       try {
         await selectorMode.onSkip();
-      } finally {
         onClose();
+      } catch {
+        setPhase("selecting");
       }
       return;
     }
@@ -500,6 +507,10 @@ export function PackOpeningAnimation({
   };
 
   const showPackOnLeft = isDrawing || phase === "selecting" || phase === "rerolling" || phase === "revealed";
+  const closeDisabled =
+    phase === "submitting" ||
+    phase === "rerolling" ||
+    Boolean(selectorMode && (phase === "sealed" || phase === "drawing"));
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col select-none" onClick={handleOverlayClick}>
@@ -514,7 +525,7 @@ export function PackOpeningAnimation({
             e.stopPropagation();
             if (phase !== "rerolling") void handleClose();
           }}
-          disabled={phase === "submitting" || phase === "rerolling"}
+          disabled={closeDisabled}
           className="absolute top-4 right-4 text-white/50 hover:text-white z-50 disabled:opacity-30"
         >
           <X className="w-6 h-6" />

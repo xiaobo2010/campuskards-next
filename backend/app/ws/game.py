@@ -5,23 +5,37 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
 from app.core.game_engine import GameError
 from app.core.security import decode_token
+from app.models import User
 from app.services.game_manager import game_manager
 
 logger = logging.getLogger(__name__)
 ws_router = APIRouter()
 
 
-async def _authenticate_ws(token: str | None) -> str | None:
+async def _authenticate_ws(token: str | None, db: AsyncSession) -> str | None:
     if not token:
         return None
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         return None
-    return payload.get("sub")
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        return None
+    token_ver = payload.get("ver", 0)
+    if token_ver != user.token_version:
+        return None
+    return str(user.id)
 
 
 @ws_router.websocket("/ws/game/{match_id}")
@@ -44,7 +58,8 @@ async def game_websocket(
             params = parse_qs(qs)
             token = params.get("token", [None])[0]
 
-    user_id = await _authenticate_ws(token)
+    async with async_session() as db:
+        user_id = await _authenticate_ws(token, db)
     if not user_id:
         await websocket.close(code=4401, reason="Unauthorized")
         return

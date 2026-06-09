@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -64,6 +64,34 @@ def _ink_reward(streak: int) -> int:
 def _next_reward(streak: int) -> dict:
     next_streak = streak + 1 if streak > 0 else 1
     return {"day": next_streak, "ink": _ink_reward(next_streak)}
+
+
+async def _insert_checkin_and_award(
+    db: AsyncSession,
+    user: User,
+    checkin_date: date,
+    streak: int,
+    ink_awarded: int,
+) -> bool:
+    """Atomically claim the one-per-day row before granting ink."""
+    insert_result = await db.execute(
+        text(
+            "INSERT INTO user_checkins (user_id, checkin_date, streak) "
+            "VALUES (:uid, :d, :streak) "
+            "ON CONFLICT (user_id, checkin_date) DO NOTHING "
+            "RETURNING streak"
+        ),
+        {"uid": str(user.id), "d": checkin_date, "streak": streak},
+    )
+    if insert_result.scalar_one_or_none() is None:
+        return False
+
+    await db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(ink=(func.coalesce(User.ink, 0) + ink_awarded))
+    )
+    return True
 
 
 async def _get_streak_info(db: AsyncSession, user_id: str) -> tuple[int, bool, int]:
@@ -143,16 +171,14 @@ async def daily_checkin(
     new_streak = yesterday_streak + 1 if yesterday_streak > 0 else 1
     ink_awarded = _ink_reward(new_streak)
 
-    user.ink = (user.ink or 0) + ink_awarded
-
-    await db.execute(
-        text(
-            "INSERT INTO user_checkins (user_id, checkin_date, streak) "
-            "VALUES (:uid, :d, :streak) "
-            "ON CONFLICT (user_id, checkin_date) DO NOTHING"
-        ),
-        {"uid": str(user.id), "d": today, "streak": new_streak},
-    )
+    inserted = await _insert_checkin_and_award(db, user, today, new_streak, ink_awarded)
+    if not inserted:
+        streak, _, total = await _get_streak_info(db, str(user.id))
+        return CheckinResponse(
+            streak=streak,
+            reward={"ink": 0},
+            total_checkins=total,
+        )
     await db.commit()
 
     total = (
