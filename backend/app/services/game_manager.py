@@ -30,7 +30,15 @@ from app.services.game_state_store import (
     load_room_data,
     save_room,
 )
+from app.services.match_events_bus import (
+    STATE_REFRESH_EVENT,
+    publish_match_event,
+    start_match_events_bus,
+    stop_match_events_bus,
+)
 from app.services.matchmaking import MatchMode, MatchTicket, matchmaking
+from app.services.pve_ai import BotAction, decide_bot_actions
+from app.services.pve_bot import is_bot_user
 
 
 @dataclass
@@ -75,6 +83,33 @@ class GameManager:
     def __init__(self) -> None:
         self._rooms: dict[str, GameRoom] = {}
         self._lock = asyncio.Lock()
+        self._bus_started = False
+
+    async def start(self) -> None:
+        if self._bus_started:
+            return
+        await start_match_events_bus(self._on_remote_event)
+        await matchmaking.hydrate_from_redis()
+        self._bus_started = True
+
+    async def stop(self) -> None:
+        await stop_match_events_bus()
+        self._bus_started = False
+
+    async def _on_remote_event(
+        self,
+        match_id: str,
+        event: str,
+        payload: dict[str, Any],
+        _origin: str,
+    ) -> None:
+        room = await self.get_room(match_id)
+        if not room:
+            return
+        if event == STATE_REFRESH_EVENT:
+            await self._broadcast_states_local(room)
+        else:
+            await self._broadcast_local(room, event, payload)
 
     async def create_room(
         self,
@@ -201,6 +236,7 @@ class GameManager:
             "turn_deadline_ts": room.turn_deadline,
         })
         await self._schedule_turn_timer(room)
+        await self._maybe_run_bot(room)
 
     async def get_room(self, match_id: str) -> GameRoom | None:
         async with self._lock:
@@ -237,6 +273,8 @@ class GameManager:
         room = await self.get_room(match_id)
         if not room:
             raise ValueError("match_not_found")
+        if is_bot_user(user_id):
+            raise ValueError("bot_cannot_connect")
         if user_id not in (room.p1_id, room.p2_id):
             raise ValueError("not_participant")
         room.connections[user_id] = ws
@@ -248,12 +286,21 @@ class GameManager:
             room.connections.pop(user_id, None)
 
     async def handle_join(self, room: GameRoom, user_id: str) -> None:
+        if is_bot_user(user_id):
+            return
         room.joined.add(user_id)
         slot = room.player_slot(user_id)
         if slot is None:
             return
         await self._send(room, user_id, "game_state", self._state_payload(room, slot))
-        if len(room.joined) >= 2 and room.turn_deadline is None:
+
+        if room.mode == "pve":
+            room.joined.add(room.p2_id)
+            ready = True
+        else:
+            ready = len(room.joined) >= 2
+
+        if ready and room.turn_deadline is None:
             room.match_started_at = time.time()
             await self._begin_turn(room)
 
@@ -596,6 +643,103 @@ class GameManager:
         await self._broadcast(room, "game_over", payload)
         return payload
 
+    async def _maybe_run_bot(self, room: GameRoom) -> None:
+        if room.mode != "pve" or room.game.game_over:
+            return
+        bot_id = room.p2_id if is_bot_user(room.p2_id) else (
+            room.p1_id if is_bot_user(room.p1_id) else None
+        )
+        if not bot_id:
+            return
+        slot = room.player_slot(bot_id)
+        if slot is None or room.game.current_player != slot:
+            return
+        asyncio.create_task(self._run_bot_turn(room, bot_id))
+
+    async def _run_bot_turn(self, room: GameRoom, bot_id: str) -> None:
+        await asyncio.sleep(0.6)
+        bot_slot = room.player_slot(bot_id)
+        if bot_slot is None:
+            return
+
+        for _ in range(40):
+            async with room.lock:
+                if room.game.game_over or room.game.current_player != bot_slot:
+                    return
+                actions = decide_bot_actions(room.game, bot_slot)
+                if not actions:
+                    return
+                action = actions[0]
+
+            try:
+                finalize = await self._execute_bot_action(room, bot_id, action)
+                if finalize:
+                    return
+            except GameError:
+                async with room.lock:
+                    if room.game.phase.value == "COMBAT":
+                        try:
+                            await self.handle_end_turn(room, bot_id)
+                        except GameError:
+                            pass
+                    elif room.game.phase.value == "MAIN":
+                        try:
+                            room.game.begin_combat_phase()
+                            await self._broadcast_states(room)
+                            await self._persist_room(room)
+                        except GameError:
+                            await self.handle_end_turn(room, bot_id)
+                return
+            await asyncio.sleep(0.25)
+
+    async def _execute_bot_action(
+        self,
+        room: GameRoom,
+        bot_id: str,
+        action: BotAction,
+    ) -> dict[str, Any] | None:
+        if action.kind == "play_card" and action.card_uid:
+            side = room.game.battlefield.side_for(room.player_slot(bot_id) or 2)
+            card = room.game._find_in_list(side.hand, action.card_uid)
+            card_id = card.card_id if card else action.card_uid
+            return await self.handle_play_card(
+                room,
+                bot_id,
+                card_id,
+                action.position,
+                action.slot,
+                action.target_id,
+            )
+        if action.kind == "begin_combat":
+            async with room.lock:
+                if room.game.phase != Phase.COMBAT:
+                    room.game.begin_combat_phase()
+                    await self._broadcast(room, "combat_phase", {
+                        "player": player_key(room.game.current_player),
+                    })
+                    await self._broadcast_states(room)
+                    await self._persist_room(room)
+            return None
+        if action.kind == "attack" and action.attacker_ids:
+            return await self.handle_attack(
+                room,
+                bot_id,
+                action.attacker_ids,
+                action.target_id,
+            )
+        if action.kind == "resolve_choice" and action.choice_id:
+            return await self.handle_resolve_choice(
+                room,
+                bot_id,
+                action.choice_id,
+                action.target_id,
+            )
+        if action.kind == "resolve_discard" and action.card_uids:
+            return await self.handle_resolve_discard(room, bot_id, action.card_uids)
+        if action.kind == "end_turn":
+            return await self.handle_end_turn(room, bot_id)
+        return None
+
     def _state_payload(self, room: GameRoom, viewer_slot: int) -> dict:
         return build_game_state(
             room.game,
@@ -606,12 +750,20 @@ class GameManager:
         )
 
     async def _broadcast_states(self, room: GameRoom) -> None:
+        await self._broadcast_states_local(room)
+        await publish_match_event(room.match_id, STATE_REFRESH_EVENT, {})
+
+    async def _broadcast_states_local(self, room: GameRoom) -> None:
         for uid, ws in list(room.connections.items()):
             slot = room.player_slot(uid)
             if slot:
                 await self._send_ws(ws, "game_state", self._state_payload(room, slot))
 
     async def _broadcast(self, room: GameRoom, event: str, payload: dict) -> None:
+        await self._broadcast_local(room, event, payload)
+        await publish_match_event(room.match_id, event, payload)
+
+    async def _broadcast_local(self, room: GameRoom, event: str, payload: dict) -> None:
         for ws in list(room.connections.values()):
             await self._send_ws(ws, event, payload)
 

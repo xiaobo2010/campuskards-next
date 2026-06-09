@@ -203,7 +203,7 @@ export interface OpponentInfo {
   elo: number;
 }
 
-export type MatchMode = "quick" | "ranked";
+export type MatchMode = "quick" | "ranked" | "pve";
 
 export interface MatchQueueResponse {
   status: string;
@@ -220,6 +220,13 @@ export interface MatchQueueStatus {
   opponent?: OpponentInfo | null;
   queue_position?: number | null;
   estimated_wait?: number | null;
+}
+
+export interface PveMatchResponse {
+  status: string;
+  mode: MatchMode;
+  match_id: string;
+  opponent: OpponentInfo;
 }
 
 export interface BattleUnit {

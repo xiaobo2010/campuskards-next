@@ -21,9 +21,12 @@ from app.schemas.match import (
     MatchSurrenderResponse,
     MatchUserInfo,
     OpponentInfo,
+    PveMatchRequest,
+    PveMatchResponse,
 )
 from app.services.game_manager import expand_deck_cards, game_manager
-from app.services.matchmaking import ESTIMATED_WAIT_MS, QueueEntry, matchmaking
+from app.services.matchmaking import ESTIMATED_WAIT_MS, MatchTicket, QueueEntry, matchmaking
+from app.services.pve_bot import BOT_DECK_ID, BOT_USER_ID, BOT_USERNAME, ensure_pve_bot
 
 router = APIRouter(prefix="/api/match", tags=["match"])
 
@@ -127,6 +130,8 @@ async def join_queue(
             raise HTTPException(status_code=400, detail="已有进行中的对战") from exc
         if str(exc) == "invalid_mode":
             raise HTTPException(status_code=400, detail="无效的匹配模式") from exc
+        if str(exc) == "use_pve_endpoint":
+            raise HTTPException(status_code=400, detail="PVE 请使用 /api/match/pve") from exc
         raise
 
     if ticket:
@@ -144,6 +149,55 @@ async def join_queue(
         mode=body.mode,
         queue_position=position,
         estimated_wait=ESTIMATED_WAIT_MS,
+    )
+
+
+@router.post("/pve", response_model=PveMatchResponse)
+async def start_pve_match(
+    body: PveMatchRequest,
+    user: User = Depends(_get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PveMatchResponse:
+    """Start a single-player practice match against the training AI."""
+    status = await matchmaking.get_status(str(user.id))
+    if status.get("status") == "matched":
+        raise HTTPException(status_code=400, detail="已有进行中的对战")
+    if status.get("status") == "queued":
+        raise HTTPException(status_code=400, detail="请先取消匹配队列")
+
+    deck = await _load_deck(db, body.deck_id)
+    if not deck or deck.user_id != user.id:
+        raise HTTPException(status_code=400, detail="卡组不存在或不属于当前用户")
+
+    ok, errors = await _validate_deck_entries(
+        db, user, deck.faction_code, deck.entries, strict=True
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    try:
+        await ensure_pve_bot(db)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    ticket = MatchTicket(
+        match_id=str(uuid.uuid4()),
+        mode="pve",
+        p1_id=str(user.id),
+        p1_username=user.username,
+        p1_elo=user.elo,
+        p1_deck_id=str(body.deck_id),
+        p2_id=str(BOT_USER_ID),
+        p2_username=BOT_USERNAME,
+        p2_elo=1000,
+        p2_deck_id=str(BOT_DECK_ID),
+    )
+    await _start_match(db, ticket)
+    return PveMatchResponse(
+        status="matched",
+        mode="pve",
+        match_id=ticket.match_id,
+        opponent=OpponentInfo(id=str(BOT_USER_ID), username=BOT_USERNAME, elo=1000),
     )
 
 

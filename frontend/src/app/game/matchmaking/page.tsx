@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Swords, Zap, Trophy, X } from "lucide-react";
+import { Swords, Zap, Trophy, X, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
@@ -84,6 +84,25 @@ export default function MatchmakingPage() {
     pollStatus();
     return () => clearInterval(interval);
   }, [matchState, pollStatus]);
+
+  const handleStartPve = async () => {
+    if (!selectedDeckId) {
+      toast.error("请先创建并选择一套卡组");
+      return;
+    }
+    try {
+      const res = await matchApi.startPve(selectedDeckId);
+      setCurrentGame(res.match_id, res.opponent);
+      setMatchState("found");
+      toast.success("训练对局已创建，正在进入...");
+      setTimeout(() => {
+        router.push(`/game/play?match_id=${res.match_id}`);
+      }, 800);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "无法开始 PVE 对局";
+      toast.error(msg);
+    }
+  };
 
   const handleStartMatch = async () => {
     if (!selectedDeckId) {
@@ -245,6 +264,22 @@ export default function MatchmakingPage() {
                   >
                     <Swords className="w-5 h-5 mr-2" />
                     开始匹配
+                  </Button>
+
+                  <div className="relative flex items-center py-1">
+                    <div className="flex-grow border-t border-zinc-700" />
+                    <span className="mx-3 text-xs text-zinc-500">或</span>
+                    <div className="flex-grow border-t border-zinc-700" />
+                  </div>
+
+                  <Button
+                    onClick={handleStartPve}
+                    disabled={!selectedDeckId || loadingDecks}
+                    variant="outline"
+                    className="w-full h-12 border-emerald-600/50 text-emerald-300 hover:bg-emerald-950/40"
+                  >
+                    <Bot className="w-5 h-5 mr-2" />
+                    单人练习（对战 AI）
                   </Button>
                 </CardContent>
               </Card>

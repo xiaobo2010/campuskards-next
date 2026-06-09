@@ -3,12 +3,23 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-MatchMode = Literal["quick", "ranked"]
+MatchMode = Literal["quick", "ranked", "pve"]
 
 
 class MatchQueueRequest(BaseModel):
     deck_id: UUID
     mode: MatchMode = "quick"
+
+
+class PveMatchRequest(BaseModel):
+    deck_id: UUID
+
+
+class PveMatchResponse(BaseModel):
+    status: str = "matched"
+    mode: MatchMode = "pve"
+    match_id: str
+    opponent: OpponentInfo
 
 
 class MatchQueueResponse(BaseModel):

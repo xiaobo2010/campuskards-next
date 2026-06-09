@@ -15,11 +15,18 @@ ExecStart=/ssd/7a40/campuskards/backend/.venv/bin/uvicorn app.main:app \
   --host 127.0.0.1 \
   --port 8000 \
   --workers 4 \
+  --timeout-keep-alive 30 \
+  --timeout-graceful-shutdown 15 \
   --log-level info
 
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=200%
+TimeoutStopSec=30
 
 # Security hardening
 NoNewPrivileges=true

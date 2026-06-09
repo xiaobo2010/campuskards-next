@@ -20,6 +20,7 @@ import type {
   UserCardOwnership,
   UpgradeResult,
   MatchQueueResponse,
+  PveMatchResponse,
   MatchQueueStatus,
   MatchMode,
   MatchStats,
@@ -632,6 +633,13 @@ export const matchApi = {
     return apiFetch<MatchQueueResponse>("/api/match/queue", {
       method: "POST",
       body: JSON.stringify({ deck_id: deckId, mode }),
+    });
+  },
+
+  startPve(deckId: string): Promise<PveMatchResponse> {
+    return apiFetch<PveMatchResponse>("/api/match/pve", {
+      method: "POST",
+      body: JSON.stringify({ deck_id: deckId }),
     });
   },
 

@@ -1,14 +1,17 @@
 """WebSocket handler for real-time matches (DEVELOPMENT.md §4.11)."""
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
 from app.core.game_engine import GameError
 from app.core.security import decode_token
 from app.services.game_manager import game_manager
 
+logger = logging.getLogger(__name__)
 ws_router = APIRouter()
 
 
@@ -45,7 +48,12 @@ async def game_websocket(
         await game_manager.connect(match_id, user_id, websocket)
 
         while True:
-            raw = await websocket.receive_json()
+            try:
+                raw = await asyncio.wait_for(websocket.receive_json(), timeout=120)
+            except asyncio.TimeoutError:
+                logger.info("WS %s: receive timeout, closing", match_id)
+                break
+
             event = raw.get("event")
             payload = raw.get("payload") or {}
 
@@ -126,6 +134,8 @@ async def game_websocket(
                 await websocket.send_json({"event": "error", "payload": {"detail": str(exc)}})
 
     except WebSocketDisconnect:
-        pass
+        logger.info("WS %s: client disconnected", match_id)
+    except Exception as exc:
+        logger.exception("WS %s: unhandled error: %s", match_id, exc)
     finally:
         await game_manager.disconnect(match_id, user_id)

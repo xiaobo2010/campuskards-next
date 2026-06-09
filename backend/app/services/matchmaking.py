@@ -10,8 +10,8 @@ from typing import Any, Literal
 
 from app.core.cache import cache_delete, cache_get, cache_set
 
-MatchMode = Literal["quick", "ranked"]
-VALID_MODES: tuple[MatchMode, ...] = ("quick", "ranked")
+MatchMode = Literal["quick", "ranked", "pve"]
+VALID_MODES: tuple[MatchMode, ...] = ("quick", "ranked", "pve")
 
 QUEUE_KEY_TEMPLATE = "match:queue:{mode}"
 USER_STATE_KEY = "match:user:"
@@ -57,6 +57,8 @@ class MatchmakingService:
     async def enqueue(self, entry: QueueEntry) -> tuple[int, MatchTicket | None]:
         if entry.mode not in VALID_MODES:
             raise ValueError("invalid_mode")
+        if entry.mode == "pve":
+            raise ValueError("use_pve_endpoint")
 
         async with self._lock:
             if entry.user_id in self._user_active_match:
@@ -111,7 +113,18 @@ class MatchmakingService:
                     "queue_position": self._position_locked(user_id, mode),
                     "estimated_wait": ESTIMATED_WAIT_MS,
                 }
-            return {"status": "idle"}
+
+        # Cross-worker fallback via Redis mirror
+        active = await cache_get(f"{MATCH_USER_KEY}{user_id}")
+        if active:
+            mode = await self._resolve_user_mode(user_id)
+            return {
+                "status": "matched",
+                "match_id": active,
+                "mode": mode,
+                "opponent": None,
+            }
+        return {"status": "idle"}
 
     async def register_active_match(self, ticket: MatchTicket) -> None:
         async with self._lock:
@@ -196,6 +209,39 @@ class MatchmakingService:
             except json.JSONDecodeError:
                 pass
         return None
+
+    async def hydrate_from_redis(self) -> None:
+        """Restore queue mirrors from Redis after worker restart (best-effort)."""
+        async with self._lock:
+            for mode in ("quick", "ranked"):
+                raw = await cache_get(QUEUE_KEY_TEMPLATE.format(mode=mode))
+                if not raw:
+                    continue
+                try:
+                    entries = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                restored: list[QueueEntry] = []
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    uid = item.get("user_id")
+                    if not uid or uid in self._user_active_match:
+                        continue
+                    restored.append(
+                        QueueEntry(
+                            user_id=uid,
+                            username=item.get("username", "player"),
+                            elo=int(item.get("elo", 1000)),
+                            deck_id=item.get("deck_id", ""),
+                            mode=mode,  # type: ignore[arg-type]
+                            joined_at=float(item.get("joined_at", time.time())),
+                        )
+                    )
+                if restored:
+                    self._queues[mode] = restored
+                    for entry in restored:
+                        self._user_queue_mode[entry.user_id] = mode
 
 
 matchmaking = MatchmakingService()
