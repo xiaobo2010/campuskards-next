@@ -41,6 +41,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
 import { UserAvatar } from "@/components/game/user-avatar";
+import { useUIStore, SIDEBAR_WIDTH_COLLAPSED, SIDEBAR_WIDTH_EXPANDED } from "@/store/useUIStore";
 
 interface NavItem {
   href: string;
@@ -70,15 +71,13 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useUIStore((s) => s.sidebarCollapsed);
+  const toggleSidebarCollapsed = useUIStore((s) => s.toggleSidebarCollapsed);
   const [isMobile, setIsMobile] = useState(false);
 
-  // Responsive: auto-collapse based on viewport
   useEffect(() => {
     function handleResize() {
-      const w = window.innerWidth;
-      setIsMobile(w < 1024); // lg breakpoint
-      setCollapsed(w < 1280); // xl → expanded, below → collapsed
+      setIsMobile(window.innerWidth < 1024);
     }
     handleResize();
     window.addEventListener("resize", handleResize);
@@ -147,7 +146,7 @@ export default function Sidebar() {
   // Hidden on mobile — MobileHeader handles nav
   if (isMobile) return null;
 
-  const sidebarWidth = collapsed ? 64 : 240;
+  const sidebarWidth = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
 
   return (
     <>
@@ -403,7 +402,7 @@ export default function Sidebar() {
         {/* Collapse toggle */}
         <div className="px-2 pb-2 shrink-0">
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={toggleSidebarCollapsed}
             className="w-full flex items-center justify-center rounded-lg h-9 transition-colors duration-150"
             style={{ color: "var(--text-secondary)" }}
             onMouseEnter={(e) => {

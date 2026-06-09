@@ -85,7 +85,7 @@ PACKS: dict[str, PackDef] = {
     "basic": PackDef(
         id="basic",
         name="基础卡包",
-        description="5张卡牌，30%概率出稀有(≤2)，3%概率出史诗(≤1)，1%概率出传奇(≤1)",
+        description="随机获得 5 张卡牌，适合日常扩充收藏。",
         price_ink=200,
         cards_count=5,
         rolls=[
@@ -97,7 +97,7 @@ PACKS: dict[str, PackDef] = {
     "advanced": PackDef(
         id="advanced",
         name="进阶卡包",
-        description="6张卡牌，50%概率出稀有(≤4)，10%概率出史诗(≤2)，3%概率出传奇(≤1)",
+        description="随机获得 6 张卡牌，整体稀有度更高。",
         price_ink=600,
         cards_count=6,
         rolls=[
@@ -109,7 +109,7 @@ PACKS: dict[str, PackDef] = {
     "selector": PackDef(
         id="selector",
         name="选卡卡包",
-        description="8张卡牌，必出1张史诗。开包后可选择1张重抽，或放弃保留原结果",
+        description="随机获得 8 张卡牌，开包后可选择 1 张重抽或保留原结果。",
         price_ink=1000,
         cards_count=8,
         guaranteed_epic=1,
@@ -122,7 +122,7 @@ PACKS: dict[str, PackDef] = {
     "faction": PackDef(
         id="faction",
         name="势力卡包",
-        description="5张卡牌，必出2张同势力，其余同进阶卡包概率",
+        description="随机获得 5 张卡牌，其中 2 张为所选势力。",
         price_ink=800,
         cards_count=5,
         guaranteed_faction=2,
@@ -135,7 +135,7 @@ PACKS: dict[str, PackDef] = {
     "prestige": PackDef(
         id="prestige",
         name="声望卡包",
-        description="3张卡牌，保证稀有以上，40%概率出史诗，10%概率出传奇。需ELO≥2000",
+        description="随机获得 3 张卡牌，保证稀有及以上。需 ELO ≥ 2000。",
         price_ink=0,
         price_elo=500,
         cost_type="elo",

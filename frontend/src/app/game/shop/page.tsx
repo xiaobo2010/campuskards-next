@@ -30,6 +30,29 @@ import {
 } from "@/components/game/pack-opening-animation";
 import { CheckInBanner } from "@/components/game/checkin-banner";
 
+/** Short copy for card UI — no drop rates (see PACK_RATE_INFO). */
+const PACK_SHORT_DESC: Record<string, string> = {
+  basic: "随机获得 5 张卡牌，适合日常扩充收藏。",
+  advanced: "随机获得 6 张卡牌，整体稀有度更高。",
+  selector: "随机获得 8 张卡牌，开包后可选择 1 张重抽或保留原结果。",
+  faction: "随机获得 5 张卡牌，其中 2 张为所选势力。",
+  prestige: "随机获得 3 张卡牌，保证稀有及以上。需 ELO ≥ 2000。",
+};
+
+/** Full drop-rate details for the info dialog. */
+const PACK_RATE_INFO: Record<string, string> = {
+  basic:
+    "共 5 张卡牌。每张独立判定：30% 概率出稀有（包内最多 2 张）、3% 概率出史诗（最多 1 张）、1% 概率出传奇（最多 1 张）。不承诺保底。",
+  advanced:
+    "共 6 张卡牌。每张独立判定：50% 概率出稀有（最多 4 张）、10% 概率出史诗（最多 2 张）、3% 概率出传奇（最多 1 张）。不承诺保底。",
+  selector:
+    "共 8 张卡牌，必出 1 张史诗。其余每张独立判定：60% 概率出稀有（最多 6 张）、15% 概率出史诗（最多 3 张，含保底）、5% 概率出传奇（最多 1 张）。开包后可选择 1 张重抽，或放弃保留全部结果。",
+  faction:
+    "共 5 张卡牌，必出 2 张同势力卡牌。其余判定规则同进阶卡包：50% 稀有（最多 4）、10% 史诗（最多 2）、3% 传奇（最多 1）。",
+  prestige:
+    "共 3 张卡牌，保证稀有及以上。40% 概率出史诗，10% 概率出传奇。消耗 500 ELO，需当前 ELO ≥ 2000。",
+};
+
 /** UI-only metadata keyed by pack id from backend */
 const PACK_DISPLAY: Record<
   string,
@@ -73,6 +96,8 @@ type ShopPack = PackDefinition & {
   border: string;
   needsFaction?: boolean;
   requiresElo?: number;
+  shortDescription: string;
+  rateInfo: string;
 };
 
 function toShopPack(pack: PackDefinition): ShopPack {
@@ -89,6 +114,8 @@ function toShopPack(pack: PackDefinition): ShopPack {
     cost: isElo ? (pack.price_elo ?? 0) : pack.price_ink,
     costType: isElo ? "elo" : undefined,
     requiresElo: pack.min_elo,
+    shortDescription: PACK_SHORT_DESC[pack.id] ?? pack.description,
+    rateInfo: PACK_RATE_INFO[pack.id] ?? pack.description,
     ...display,
   };
 }
@@ -334,7 +361,7 @@ export default function ShopPage() {
                     )}
                   </div>
                   <CardDescription className="leading-relaxed">
-                    {pack.description}
+                    {pack.shortDescription}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -371,11 +398,13 @@ export default function ShopPage() {
                         </Button>
                         <Button
                           variant="outline"
-                          className="shrink-0 border-zinc-600"
+                          size="icon"
+                          className="shrink-0 border-zinc-600 text-zinc-300 hover:text-zinc-100"
                           onClick={() => setRateInfoPack(pack)}
+                          aria-label={`${pack.name} 爆率说明`}
+                          title="爆率说明"
                         >
-                          <Info className="w-4 h-4 mr-1" />
-                          爆率说明
+                          <Info className="w-4 h-4" />
                         </Button>
                       </div>
                     )}
@@ -398,7 +427,7 @@ export default function ShopPage() {
           </DialogHeader>
           {rateInfoPack && (
             <div className="space-y-3 py-2 text-sm text-muted-foreground leading-relaxed">
-              <p>{rateInfoPack.description}</p>
+              <p>{rateInfoPack.rateInfo}</p>
               <p className="text-xs text-zinc-500">
                 包含 {rateInfoPack.cards} 张卡牌
                 {rateInfoPack.costType === "elo"

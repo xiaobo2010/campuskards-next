@@ -43,6 +43,22 @@ const RARITY_GLOW: Record<string, string> = {
 
 const PAGE_SIZE = 12;
 
+const RARITY_ORDER: Record<string, number> = {
+  legendary: 0,
+  epic: 1,
+  rare: 2,
+  uncommon: 3,
+  common: 4,
+};
+
+const RARITY_EMOJI: Record<string, string> = {
+  legendary: "👑",
+  epic: "🔮",
+  rare: "💎",
+  uncommon: "✨",
+  common: "⚪",
+};
+
 /** Merge catalog cards with nested card objects from the user's collection. */
 function buildCollectionState(
   catalog: Card[],
@@ -139,20 +155,27 @@ export default function CollectionPage() {
   }, [user, fetchData]);
 
   const filteredCards = useMemo(() => {
-    return cards.filter((c) => {
-      if (c.is_token) return false;
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
-        if (!c.name.toLowerCase().includes(q) && !c.name_en?.toLowerCase().includes(q)) return false;
-      }
-      if (filters.faction && c.faction_code !== filters.faction) return false;
-      if (filters.rarity && c.rarity !== filters.rarity) return false;
-      if (filters.cost && c.cost !== Number(filters.cost)) return false;
-      if (filters.type && !matchesCardType(c.card_type, filters.type)) return false;
-      if (filters.owned === "owned" && !ownedSet.has(String(c.id))) return false;
-      if (filters.owned === "unowned" && ownedSet.has(String(c.id))) return false;
-      return true;
-    });
+    return cards
+      .filter((c) => {
+        if (c.is_token) return false;
+        if (filters.search) {
+          const q = filters.search.toLowerCase();
+          if (!c.name.toLowerCase().includes(q) && !c.name_en?.toLowerCase().includes(q)) return false;
+        }
+        if (filters.faction && c.faction_code !== filters.faction) return false;
+        if (filters.rarity && c.rarity !== filters.rarity) return false;
+        if (filters.cost && c.cost !== Number(filters.cost)) return false;
+        if (filters.type && !matchesCardType(c.card_type, filters.type)) return false;
+        if (filters.owned === "owned" && !ownedSet.has(String(c.id))) return false;
+        if (filters.owned === "unowned" && ownedSet.has(String(c.id))) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aOwned = ownedSet.has(String(a.id)) ? 0 : 1;
+        const bOwned = ownedSet.has(String(b.id)) ? 0 : 1;
+        if (aOwned !== bOwned) return aOwned - bOwned;
+        return (RARITY_ORDER[a.rarity || "common"] ?? 4) - (RARITY_ORDER[b.rarity || "common"] ?? 4);
+      });
   }, [cards, ownedSet, filters]);
 
   const totalPages = Math.max(1, Math.ceil(filteredCards.length / PAGE_SIZE));
@@ -336,6 +359,16 @@ export default function CollectionPage() {
                           !isOwned && "opacity-50 grayscale"
                         )}
                       >
+                        {/* Rarity emoji - top left */}
+                        <div className="absolute top-1.5 left-1.5 text-lg z-10 pointer-events-none select-none">
+                          {RARITY_EMOJI[rarity] ?? "⚪"}
+                        </div>
+                        {/* Card name overlay - bottom half */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent pt-8 pb-1.5 px-2 pointer-events-none">
+                          <span className="text-[11px] font-bold text-white leading-tight line-clamp-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                            {card.name}
+                          </span>
+                        </div>
                         {/* Level badge */}
                         {ownership?.level && ownership.level > 1 && (
                           <div className="absolute top-1 right-1 bg-gradient-to-r from-yellow-600 to-orange-600 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-lg z-10">
@@ -344,7 +377,7 @@ export default function CollectionPage() {
                         )}
                         {/* Fragments indicator */}
                         {ownership?.fragments && ownership.fragments > 0 && (
-                          <div className="absolute bottom-1 left-1 right-1 text-center">
+                          <div className="absolute bottom-1 left-1 right-1 text-center z-10">
                             <span className="text-[9px] bg-purple-900/80 text-purple-200 px-1.5 py-0.5 rounded">
                               🔷{ownership.fragments}
                             </span>

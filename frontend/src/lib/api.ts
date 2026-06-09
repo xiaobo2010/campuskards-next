@@ -323,34 +323,52 @@ export const cardsApi = {
 
 // ---------- User API ----------
 
+async function apiFetchFormData<T>(path: string, file: File, fieldName = "file"): Promise<T> {
+  const formData = new FormData();
+  formData.append(fieldName, file);
+
+  const headers: Record<string, string> = {};
+  const at = getToken(ACCESS_KEY);
+  if (at) headers["Authorization"] = `Bearer ${at}`;
+
+  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    credentials: "include",
+    headers,
+    body: formData,
+  });
+
+  if (res.status === 401 && !headers["X-Retry"]) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      const newAt = getToken(ACCESS_KEY);
+      if (newAt) headers["Authorization"] = `Bearer ${newAt}`;
+      headers["X-Retry"] = "1";
+      return apiFetchFormData<T>(path, file, fieldName);
+    }
+    clearTokens();
+  }
+
+  if (!res.ok) {
+    let detail = "上传失败";
+    try {
+      const errData = await res.json();
+      detail = errData?.detail || detail;
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, detail, null);
+  }
+
+  return (await res.json()) as T;
+}
+
 export const userApi = {
   getProfile(): Promise<User> {
     return apiFetch<User>("/api/user/profile");
   },
 
-  async uploadAvatar(file: File): Promise<{ avatar_url: string }> {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    const formData = new FormData();
-    formData.append("avatar", file);
-    const res = await fetch(`${API_BASE}/api/user/avatar`, {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: formData,
-    });
-    if (!res.ok) {
-      let detail = "上传失败";
-      try {
-        const errData = await res.json();
-        detail = errData?.detail || detail;
-      } catch {
-        // ignore parse error
-      }
-      throw new ApiError(res.status, detail, null);
-    }
-    return (await res.json()) as { avatar_url: string };
+  uploadAvatar(file: File): Promise<{ avatar_url: string }> {
+    return apiFetchFormData<{ avatar_url: string }>("/api/user/avatar", file, "avatar");
   },
 };
 
