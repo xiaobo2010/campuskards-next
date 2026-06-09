@@ -31,7 +31,8 @@
 | 层 | 技术 |
 |---|---|
 | 前端 | Next.js 14 App Router · TypeScript · Tailwind · shadcn/ui · Framer Motion |
-| 状态 | React Query + AuthContext（认证）· Zustand（游戏状态） |
+| 状态 | React Query + AuthContext（认证）· Zustand（游戏状态 + persist） |
+| 音频 | howler.js（BGM + SFX 独立控制 · 自动切换场景 · 首点播放） |
 | 后端 | FastAPI · Python 3.12 · SQLAlchemy 2.0 async · Pydantic v2 |
 | 数据库 | PostgreSQL 16 · Alembic 迁移 |
 | 缓存 | Redis 7（匹配队列/房间持久化） |
@@ -55,22 +56,33 @@
 ```
 campuskards/
 ├── frontend/           # Next.js 应用
+│   ├── public/audio/   # CC0 音频（BGM + SFX，Kenney/OGA）
 │   └── src/
-│       ├── app/        # 路由（auth / game / admin）
+│       ├── app/        # 路由（auth / game / admin / settings）
 │       ├── components/ # UI + 游戏组件
-│       ├── lib/        # api.ts · auth-context · config
+│       │   ├── bgm-player.tsx        # 场景自动切歌 + 首点解锁
+│       │   └── ui/                   # shadcn/ui 组件
+│       ├── hooks/      # React Hooks
+│       │   ├── use-bgm.ts            # BGM Howl 生命周期
+│       │   ├── use-sfx.ts            # SFX 缓存 + 播放触发器
+│       │   └── use-turn-timer.ts
+│       ├── lib/        # api.ts · auth-context · config · game-ws.ts
+│       ├── store/      # Zustand stores
+│       │   ├── useAudioStore.ts      # 音量/开关/场景持久化
+│       │   ├── useMatchStore.ts
+│       │   └── ...
 │       └── types/      # TypeScript 类型
 ├── backend/            # FastAPI 应用
 │   └── app/
-│       ├── api/        # 路由模块
-│       ├── models/     # ORM
-│       ├── schemas/    # Pydantic
+│       ├── api/        # 路由模块（auth/cards/collection/decks/shop/...）
+│       ├── models/     # SQLAlchemy ORM
+│       ├── schemas/    # Pydantic v2
 │       ├── core/       # 配置 · 安全 · 数据库 · 游戏引擎
-│       └── services/   # 业务逻辑（匹配/AI/房间管理）
+│       └── services/   # 业务逻辑（匹配/AI/房间管理/ELO）
 ├── deploy/             # 生产部署脚本 + systemd service
 ├── test/               # 测试 + 演示版前端
-├── DEVELOPMENT.md      # 完整 API 规范 + 开发计划
-├── BACKEND-GAP.md      # 前后端差异与 v1 限制跟踪
+├── DEVELOPMENT.md      # 完整 API 规范 + 开发计划 + Bug 清单
+├── BACKEND-GAP.md      # 前后端对齐状态
 └── docs/               # 游戏设计文档
 ```
 
@@ -173,7 +185,7 @@ npm run dev    # → http://localhost:3000
 | **Match** | `POST /api/match/{id}/surrender` | 投降 |
 | **Game WS** | `ws://host/ws/game/{match_id}` | 实时对战 WebSocket（Token 通过 Subprotocol） |
 
-## 对战功能状态
+## 功能状态
 
 - ✅ **快速匹配**：休闲对战，AI 自动补位（15秒无人则匹配 AI）
 - ✅ **排位赛**：竞技对战，影响 ELO 分数
@@ -181,6 +193,8 @@ npm run dev    # → http://localhost:3000
 - ✅ **AI 难度自适应**：根据玩家 ELO 自动调整 AI 实力
 - ✅ **游戏引擎**：五派系协同/被动、抉择系统、反制陷阱、关键词完整
 - ✅ **WebSocket 实时同步**：全量状态 + 回合计时 + 超时处理
+- ✅ **BGM 系统**：大厅/对战自动切换、首点解锁、独立音量、Zustand persist
+- ✅ **SFX 系统**：出牌/攻击/胜利/败北/点击音效、缓存 Howl 实例、独立音量
 
 ## 认证说明
 
@@ -204,6 +218,19 @@ npm run dev    # → http://localhost:3000
 | [`docs/faction-synergy-design.md`](docs/faction-synergy-design.md) | 派系协同 |
 | [`docs/battlefield-depth-design.md`](docs/battlefield-depth-design.md) | 战场机制 |
 | [`deploy/`](deploy/) | 部署脚本 + systemd 配置 + 运维文档 |
+
+## 音频素材来源
+
+本项目使用的 CC0 音频素材来自以下创作者，**无需署名**（致谢以表敬意）：
+
+| 素材 | 来源 | 作者 |
+|------|------|------|
+| BGM 大厅 / 对战 | [OpenGameArt.org](https://opengameart.org) | FGResources（Chiptune 合集） |
+| SFX 卡牌 / 攻击 / UI / 胜利 / 败北 | [Kenney.nl](https://kenney.nl) | Kenney（Audio 295-pack） |
+| SFX 硬币 | [GitHub — Game-Sound-Effects](https://github.com/JimLynchCodes/Game-Sound-Effects) | JimLynchCodes |
+
+- 所有素材遵循 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/) 许可
+- 编辑后的文件存放于 `frontend/public/audio/`
 
 ---
 

@@ -1,5 +1,8 @@
 # CampusKards 后端开发计划
 
+> 后端 70/70 API 全部完成。前端新增音频系统（howler.js BGM/SFX）为纯客户端。
+> 详见 `DEVELOPMENT.md` 第四章完整 API 规范。
+
 ## 已完成功能 (2026-06-09)
 
 | 模块 | 状态 | 说明 |
@@ -94,4 +97,4 @@ backend/
 
 ---
 
-*Last updated: 2026-06-09*
+*Last updated: 2026-06-09 (音频系统为纯前端功能，后端无变更)*

@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Howl } from "howler";
+import { Howler } from "howler";
 import { useAudioStore, type BGMTrack } from "@/store/useAudioStore";
-import { useBgm } from "@/hooks/use-bgm";
+import { AUDIO_UNLOCK_EVENT, useBgm } from "@/hooks/use-bgm";
 
 function FirstClickOverlay() {
   const [visible, setVisible] = useState(true);
@@ -19,10 +19,15 @@ function FirstClickOverlay() {
     const handler = () => {
       Howler.ctx?.resume();
       localStorage.setItem("campuskards_audio_unlocked", "1");
+      window.dispatchEvent(new Event(AUDIO_UNLOCK_EVENT));
       setVisible(false);
     };
     document.addEventListener("click", handler, { once: true });
-    return () => document.removeEventListener("click", handler);
+    document.addEventListener("keydown", handler, { once: true });
+    return () => {
+      document.removeEventListener("click", handler);
+      document.removeEventListener("keydown", handler);
+    };
   }, []);
 
   if (!visible) return null;
@@ -61,6 +66,15 @@ export default function BgmPlayer() {
       setCurrentTrack(track);
     }
   }, [pathname, bgmEnabled, setCurrentTrack]);
+
+  // Already unlocked — resume audio context on route change (mobile browsers)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem("campuskards_audio_unlocked") === "1") {
+      Howler.ctx?.resume();
+      window.dispatchEvent(new Event(AUDIO_UNLOCK_EVENT));
+    }
+  }, [pathname]);
 
   return <FirstClickOverlay />;
 }

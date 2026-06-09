@@ -63,11 +63,13 @@ export default function AvatarUploadDialog({
     try {
       const { avatar_url } = await userApi.uploadAvatar(selectedFile);
       const busted = withAvatarCacheBust(avatar_url);
-      if (busted) patchUser({ avatar_url: busted });
-      await refreshUser();
-      if (busted) patchUser({ avatar_url: busted });
+      if (busted) {
+        patchUser({ avatar_url: busted });
+      }
       toast.success("头像更新成功！");
       handleClose();
+      // Refresh other fields in background; refreshUser preserves busted avatar URL
+      void refreshUser();
     } catch (error) {
       toast.error("上传失败", {
         description: error instanceof Error ? error.message : "未知错误",

@@ -23,9 +23,21 @@ export function UserAvatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
+        key={resolved}
         src={resolved}
         alt={`${username} 头像`}
         className={cn("rounded-full object-cover shrink-0", className)}
+        onError={(e) => {
+          // Fallback: retry with explicit API origin if same-origin path failed
+          const img = e.currentTarget;
+          if (img.dataset.retried === "1") return;
+          img.dataset.retried = "1";
+          const path = avatarUrl?.split("?")[0];
+          const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+          if (apiBase && path?.startsWith("/")) {
+            img.src = `${apiBase}${path}?v=${Date.now()}`;
+          }
+        }}
       />
     );
   }

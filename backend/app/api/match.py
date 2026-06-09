@@ -116,7 +116,7 @@ async def join_queue(
     if not deck or deck.user_id != user.id:
         raise HTTPException(status_code=400, detail="卡组不存在或不属于当前用户")
 
-    ok, errors = await _validate_deck_entries(
+    ok, errors, _dominant = await _validate_deck_entries(
         db, user, deck.faction_code, deck.entries, strict=True
     )
     if not ok:
@@ -177,7 +177,7 @@ async def start_pve_match(
     if not deck or deck.user_id != user.id:
         raise HTTPException(status_code=400, detail="卡组不存在或不属于当前用户")
 
-    ok, errors = await _validate_deck_entries(
+    ok, errors, _dominant = await _validate_deck_entries(
         db, user, deck.faction_code, deck.entries, strict=True
     )
     if not ok:

@@ -145,7 +145,7 @@ npm ci && npm run build
 
 # 复制静态资源（部署脚本会自动执行此步骤）
 cp -r .next/static .next/standalone/.next/static
-cp -r public .next/standalone/public
+cp -r public .next/standalone/public      # 含 public/audio/ 音频文件
 ```
 
 ### systemd 运行 standalone
@@ -156,7 +156,7 @@ cp -r public .next/standalone/public
 - `ExecStart` → `node frontend/.next/standalone/server.js`
 - `NEXT_PUBLIC_API_URL` → 在 service 文件或构建时设置
 
-每次 `npm run build` 后都必须重新复制 `static/` 和 `public/`，否则页面样式/图片会 404。`deploy-frontend.sh` 和 `deploy.sh` 已内置 `copy_standalone_assets` 步骤。
+每次 `npm run build` 后都必须重新复制 `static/` 和 `public/`，否则页面样式/图片/音频会 404。`deploy-frontend.sh` 和 `deploy.sh` 已内置 `copy_standalone_assets` 步骤。
 
 ### 与 `next start` 的区别
 

@@ -90,6 +90,10 @@ P1 支援线 (P1 Support Line)
 | UUID 序列化 | `id: UUID` + `@field_serializer('id') → str` | 禁止 schema 文件用 `from __future__ import annotations` |
 | API 基址 | `lib/config.ts` 统一管理，默认空(同源代理) | 消除 4 处硬编码 |
 | Cookie 写入 | login 后必须显式调 `/api/auth/set-cookie` | login 响应的 Set-Cookie 被 FRP/Nginx 代理链吞掉 |
+| 音频引擎 | howler.js（非原生 `<audio>`） | 自动处理 autoplay 政策、fade 过渡、多格式回退、sprite 播放 |
+| 音频状态 | Zustand + `persist` middleware | 音量/开关偏好跨页面刷新持久化 |
+| SFX 缓存 | 共享 Howl 实例（`Map<string, Howl>`） | 避免相同音效重复加载文件 |
+| 首点解锁 | 全屏 overlay + `localStorage` 标记 | 满足浏览器 autoplay 限制，最少 UX 打扰 |
 
 ---
 
@@ -512,7 +516,7 @@ P1 支援线 (P1 Support Line)
 - [ ] **2.2** 迁移各页面到对应 store
 - [ ] **2.3** 删除旧 `store.ts`
 
-### Phase 3 — 页面完善 & 交互升级 ⬜ 待完成
+### Phase 3 — 页面完善 & 交互升级 🔶 部分完成
 - [ ] **3.1** 安装 Framer Motion
 - [ ] **3.2** 补全 shadcn/ui: `dialog`, `toast`, `select`, `tabs`, `dropdown-menu`
 - [ ] **3.3** 各路由添加 `loading.tsx` / `error.tsx`
@@ -521,7 +525,10 @@ P1 支援线 (P1 Support Line)
 - [ ] **3.6** 登录/注册: 表单验证 + 错误提示
 - [ ] **3.7** 卡牌图鉴: 筛选栏 + 卡牌网格 + 详情弹窗 + 稀有度动画
 - [ ] **3.8** 套牌构筑: 拖拽编辑 + 卡牌搜索 + 存档提示
-- [ ] **3.9** 对战页: 匹配 + 战场 UI (先做单人 PVE 壳)
+- [x] **3.8** 套牌构筑: 拖拽编辑 + 卡牌搜索 + 存档提示 (✅ 已完成)
+- [ ] **3.9** 对战页: 匹配 + 战场 UI
+- [x] **3.10** BGM/SFX 音频系统: howler.js + 场景切歌 + 首点解锁 + 设置页面滑条 (✅ 已完成)
+- [x] **3.11** 设置页面: 音频音量/开关 UI → `game/settings/page.tsx` + `store/useAudioStore.ts` (✅ 已完成)
 
 ### Phase 4 — 视觉打磨 & 性能 ⬜ 待完成
 - [ ] **4.1** 落实设计系统 tokens
@@ -536,6 +543,15 @@ P1 支援线 (P1 Support Line)
 ## 六、Bug 清单与修复状态
 
 ### P0 紧急 — ✅ 全部完成
+
+| ID | 问题 | 改动范围 | 状态 |
+|----|------|---------|------|
+| P0-1 | middleware 不保护 /game 路由 | `middleware.ts` | ✅ |
+| P0-cookie | login cookie 被代理链吞掉 | 显式调 `/api/auth/set-cookie` | ✅ |
+| P0-2 | Token 持久化 httpOnly cookie | `auth-context.tsx` | ✅ |
+| P0-3 | API_BASE 四处硬编码收敛至 `lib/config.ts` | `lib/config.ts` + 4 处文件 | ✅ |
+| P0-9 | 卡组建造器重设计 | `deck-builder/` | ✅ |
+| P0-10 | 卡组建造器数据源修复 | `deck-builder/page.tsx` | ✅ |
 
 ### P1 应快修
 
@@ -555,43 +571,56 @@ P1 支援线 (P1 Support Line)
 | P1-18 | 卡组类型大小写 | `deck-builder/page.tsx` getCategory | ✅ 2026-06-08 |
 | P1-19 | 双轨认证不同步 | 统一 `useAuth()` 管理墨水/头像 | ✅ 2026-06-08 |
 | P1-20 | JWT UTC NameError | `backend/app/core/security.py` | ✅ 2026-06-08 |
-| P1-21 | **shop.py fragment_drops 未定义变量** | `shop.py` 开包致命 NameError | **✅ 2026-06-09** |
-| **SEC-1** | add_to_collection 免费得卡 | 无权限校验 → 加 `_require_admin` | ✅ 2026-06-09 |
-| **SEC-2** | _require_current_player 空函数 | 防御纵深缺失 → 实现校验 | ✅ 2026-06-09 |
-| **SEC-3** | 无认证频率限制 | 可暴力破解 → Redis 频率限制 | ✅ 2026-06-09 |
-| **SEC-4** | JWT 无法撤销 | 无 token_version → 加入 payload+DB | ✅ 2026-06-09 |
-| **SEC-5** | finalize_if_over 竞态条件 | 无锁双重检查 → room.lock | ✅ 2026-06-09 |
-| **SEC-6** | /set-cookie 无持有者证明 | 可被利用劫持 → 增加认证 | ✅ 2026-06-09 |
-| **SEC-7** | WS token 在 URL | 日志泄露 → 移至 Subprotocol | ✅ 2026-06-09 |
-| **SEC-8** | 选卡会话在进程内存 | 多 worker 丢失 → 移至 Redis | ✅ 2026-06-09 |
-| **SEC-9** | 无管理员审计日志 | 操作无留痕 → AdminAuditLog 表 | ✅ 2026-06-09 |
-| **SEC-10** | 无安全响应头 | XSS/点击劫持 → 中间件 | ✅ 2026-06-09 |
-| **SEC-11** | 无请求体大小限制 | DoS 攻击 → 1MB 上限中间件 | ✅ 2026-06-09 |
-| **SEC-12** | 密码强度不足 | 弱密码 → regex 验证 | ✅ 2026-06-09 |
-| **SEC-13** | 效果引擎静默失败 | 正则不匹配无提示 → logger.warning | ✅ 2026-06-09 |
-| **SEC-14** | 卡组缺失卡牌静默跳过 | 不满 30 张继续 → logger.warning | ✅ 2026-06-09 |
-| **SEC-15** | collection count 无 ge=1 校验 | 允许 0/负数 → Pydantic Field | ✅ 2026-06-09 |
+| P1-21 | shop.py fragment_drops 未定义变量 | `shop.py` 开包致命 NameError | ✅ 2026-06-09 |
 
-### P2 体验优化 — ⬜ 待修复
+### P1 安全加固（SEC-1~15）
+
+| ID | 问题 | 修复 | 状态 |
+|----|------|------|------|
+| SEC-1 | add_to_collection 免费得卡 | 加 `_require_admin` | ✅ 2026-06-09 |
+| SEC-2 | _require_current_player 空函数 | 实现防御纵深校验 | ✅ 2026-06-09 |
+| SEC-3 | 无认证频率限制 | Redis 频率限制 | ✅ 2026-06-09 |
+| SEC-4 | JWT 无法撤销 | token_version payload+DB | ✅ 2026-06-09 |
+| SEC-5 | finalize_if_over 竞态条件 | room.lock 双重检查 | ✅ 2026-06-09 |
+| SEC-6 | /set-cookie 无持有者证明 | 增加认证 | ✅ 2026-06-09 |
+| SEC-7 | WS token 在 URL | 移至 Subprotocol | ✅ 2026-06-09 |
+| SEC-8 | 选卡会话在进程内存 | 移至 Redis | ✅ 2026-06-09 |
+| SEC-9 | 无管理员审计日志 | AdminAuditLog 表 | ✅ 2026-06-09 |
+| SEC-10 | 无安全响应头 | 中间件添加 | ✅ 2026-06-09 |
+| SEC-11 | 无请求体大小限制 | 1MB 上限中间件 | ✅ 2026-06-09 |
+| SEC-12 | 密码强度不足 | regex 验证 | ✅ 2026-06-09 |
+| SEC-13 | 效果引擎静默失败 | logger.warning | ✅ 2026-06-09 |
+| SEC-14 | 卡组缺失卡牌静默跳过 | logger.warning | ✅ 2026-06-09 |
+| SEC-15 | collection count 无 ge=1 校验 | Pydantic Field | ✅ 2026-06-09 |
+
+### P2 体验优化
 
 | # | Bug | 改动范围 | 状态 |
 |---|-----|---------|------|
-| P2-13 | 签到按钮防抖 | `checkin-banner.tsx` | ✅ 已有isLoading |
 | P2-9 | 核心页面补齐 L1 动效 | 多个页面组件 | ⬜ |
 | P2-10 | 补充复合 UI 组件 | `components/ui/` | ⬜ |
 | P2-11 | .env.example + 文档 | 项目根目录 | ⬜ |
+| P2-13 | 签到按钮防抖 | `checkin-banner.tsx` | ✅ 已有isLoading |
+| P2-14 | 音频设置 UI（BGM/SFX 滑条） | `game/settings/page.tsx` + `store/useAudioStore.ts` | ✅ 2026-06-09 |
+| P2-15 | WS 回合计时 SFX 接入 | `game/play/page.tsx` + `hooks/use-sfx.ts` | ✅ 2026-06-09 |
 
 ### P3 已发现待确认
 
 | # | Issue | 详情 | 状态 |
 |---|-------|------|------|
-| P3-1 | `card.py` 中废弃 `UserCardOut` (quantity 字段) | 与 `collection.py` 的 `UserCardOut` (count 字段) 冲突 | ✅ 2026-06-09 |
-| P3-2 | `auth-context.tsx` 直接使用 `process.env.NEXT_PUBLIC_API_URL` | 未统一通过 `lib/config.ts` 的 `API_BASE` | ✅ 2026-06-09 |
-| P3-3 | 双测试目录混淆 | `test/backend/` 内测试已迁至 `backend/tests/` | ✅ 2026-06-09 |
-| P3-4 | `expand_cards.py` 硬编码路径 | 改用相对于脚本目录的路径 | ✅ 2026-06-09 |
+| P3-1 | card.py 中废弃 UserCardOut (quantity 字段) | 与 collection.py 的 UserCardOut (count 字段) 冲突 | ✅ 2026-06-09 |
+| P3-2 | auth-context.tsx 直接使用 process.env.NEXT_PUBLIC_API_URL | 未统一通过 lib/config.ts 的 API_BASE | ✅ 2026-06-09 |
+| P3-3 | 双测试目录混淆 | test/backend/ 内测试已迁至 backend/tests/ | ✅ 2026-06-09 |
+| P3-4 | expand_cards.py 硬编码路径 | 改用相对于脚本目录的路径 | ✅ 2026-06-09 |
 | P3-5 | Match history 静默跳过不存在用户的对手 | 改用占位对手「已注销」 | ✅ 2026-06-09 |
-| P3-6 | Shop 开包 `fragment_drops` 未定义变量 | 开包 NameError 崩溃 | ✅ 2026-06-09 |
-| P3-7 | `test_decks.py` create_deck 断言 200 应为 201 | | ✅ 2026-06-09 |
+| P3-6 | Shop 开包 fragment_drops 未定义变量 | 开包 NameError 崩溃 | ✅ 2026-06-09 |
+| P3-7 | test_decks.py create_deck 断言 200 应为 201 | | ✅ 2026-06-09 |
+| P3-8 | battlefield.py 死代码冗余 | 删除废弃的 _is_in_zone/calc_total_spirit 等 | ✅ 2026-06-09 |
+| P3-9 | auth.py PATCH /api/auth/me field_validator 误拦 | combat_style 字段验证器应跳过 | ✅ 2026-06-09 |
+| P3-10 | match.py OpponentInfo 类定义顺序致 NameError | 调至引用的 Pydantic 模型之前 | ✅ 2026-06-09 |
+| P3-11 | effect_engine B1: 引擎条件不匹配时静默过 | 加 logger.warning | ✅ 调试器回合 |
+| P3-12 | effect_engine B2-B8: 循环/条件/属性等 | 多分支修复 | ✅ 调试器回合 |
+| P3-13 | Pixabay/Mixkit 音频源 403 | 改为 Kenney + OGA CC0 源 | ✅ 2026-06-09 |
 
 ### 工作规则
 1. 每个 coder task ≤ 3 文件改动，prompt 写明具体文件/API/组件名
@@ -604,39 +633,47 @@ P1 支援线 (P1 Support Line)
 ## 七、目标目录结构
 
 ```
-frontend/src/
-├── app/
-│   ├── layout.tsx              ← 根布局 (QueryClient + Auth)
-│   ├── globals.css             ← Tailwind + CSS vars
-│   ├── page.tsx                ← Landing
-│   ├── loading.tsx / error.tsx
-│   ├── auth/
-│   │   ├── login/page.tsx
-│   │   └── register/page.tsx
-│   └── game/
-│       ├── layout.tsx          ← 游戏导航布局
-│       ├── page.tsx            ← 大厅
-│       ├── collection/         ← 卡牌图鉴
-│       ├── deck-builder/       ← 套牌构筑
-│       └── play/               ← 对战
-├── components/
-│   ├── ui/                     ← shadcn/ui 组件
-│   ├── game/                   ← 游戏专用组件
-│   │   ├── card-grid.tsx
-│   │   ├── card-detail.tsx
-│   │   ├── deck-editor.tsx
-│   │   └── battlefield.tsx
-│   └── providers.tsx           ← 合并 Provider
-├── lib/
-│   ├── api.ts                  ← 基础 API 客户端
-│   ├── config.ts               ← API_BASE 等配置
-│   ├── auth-context.tsx        ← 认证 Context
-│   ├── query-client.ts         ← React Query 配置
-│   ├── hooks/                  ← 数据 hooks
-│   └── utils.ts                ← 工具函数
-├── stores/                     ← Zustand stores (按领域)
-├── middleware.ts               ← 仅 root→login 重定向
-└── types/                      ← TypeScript 类型定义
+frontend/
+├── public/audio/               ← CC0 BGM + SFX 文件
+│   ├── lobby-bgm.mp3
+│   ├── battle-bgm.mp3
+│   ├── cardPlay.ogg
+│   ├── attack.ogg
+│   ├── uiClick.ogg
+│   ├── victory.ogg
+│   ├── defeat.ogg
+│   ├── powerUp.ogg
+│   └── coin.wav
+└── src/
+    ├── app/
+    │   ├── layout.tsx              ← 根布局 (QueryClient + Auth + BgmPlayer)
+    │   ├── globals.css             ← Tailwind + CSS vars
+    │   ├── page.tsx                ← Landing
+    │   ├── auth/
+    │   ├── game/
+    │   │   ├── layout.tsx          ← 游戏导航布局
+    │   │   ├── settings/           ← 设置（含音频滑条）
+    │   │   ├── collection/
+    │   │   ├── deck-builder/
+    │   │   └── play/               ← 对战（含 SFX 接入）
+    │   └── admin/
+    ├── components/
+    │   ├── bgm-player.tsx          ← 场景自动切歌 + 首点解锁
+    │   ├── ui/                     ← shadcn/ui 组件
+    │   └── game/                   ← 游戏专用组件
+    ├── hooks/
+    │   ├── use-bgm.ts              ← BGM Howl 生命周期
+    │   ├── use-sfx.ts              ← SFX 缓存 + 播放
+    │   └── use-turn-timer.ts
+    ├── lib/
+    │   ├── api.ts / config.ts / auth-context.tsx / game-ws.ts
+    │   └── utils.ts
+    ├── store/                      ← Zustand stores
+    │   ├── useAudioStore.ts        ← 音量/开关/场景持久化
+    │   ├── useMatchStore.ts
+    │   └── ...
+    ├── middleware.ts               ← 仅 root→login 重定向
+    └── types/                      ← TypeScript 类型定义
 ```
 
 ---
@@ -699,7 +736,7 @@ deploy/server/
 ### Service 配置要点
 
 - **后端**：`uvicorn` 4 workers，`--timeout-keep-alive 30` 防止 502
-- **前端**：Next.js `output: "standalone"`，运行 `server.js`；构建后需复制 `.next/static` 和 `public/`
+- **前端**：Next.js `output: "standalone"`，运行 `server.js`；构建后需复制 `.next/static` 和 `public/`（含 `public/audio/` 音频文件）
 - **健康检查**：`GET /health` 返回 DB + Redis 状态
 - **数据库备份**：`backup.sh` 每日 `pg_dump` → 压缩 → 保留 7 天
 - **旧库迁移**：首次升级需 `alembic stamp <revision>` 标记当前 schema 版本
@@ -748,4 +785,4 @@ sudo tail -f /var/log/nginx/access.log
 
 ---
 
-*最后更新: 2026-06-09*
+*最后更新: 2026-06-09 (v2 — 加入音频系统、Bug 清单扩展、目录更新)*

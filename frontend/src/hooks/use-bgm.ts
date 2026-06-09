@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Howl } from "howler";
+import { Howl, Howler } from "howler";
 import { useAudioStore, type BGMTrack } from "@/store/useAudioStore";
 
 const TRACK_MAP: Record<NonNullable<BGMTrack>, string> = {
   lobby: "/audio/lobby-bgm.mp3",
   battle: "/audio/battle-bgm.mp3",
 };
+
+export const AUDIO_UNLOCK_EVENT = "campuskards-audio-unlock";
 
 export function useBgm() {
   const howlRef = useRef<Howl | null>(null);
@@ -19,6 +21,13 @@ export function useBgm() {
   } = useAudioStore();
 
   const playingRef = useRef<BGMTrack>(null);
+
+  const startPlayback = (howl: Howl, vol: number) => {
+    const id = howl.play();
+    if (id !== undefined) {
+      howl.volume(vol, id);
+    }
+  };
 
   useEffect(() => {
     if (!currentTrack || !bgmEnabled) {
@@ -49,17 +58,39 @@ export function useBgm() {
     const howl = new Howl({
       src: [src],
       loop: true,
-      volume: 0,
+      volume: vol,
       html5: true,
       onload: () => {
-        howl.fade(0, vol, 1000);
+        startPlayback(howl, vol);
+      },
+      onloaderror: (_id, err) => {
+        console.warn("[BGM] failed to load", src, err);
+      },
+      onplayerror: () => {
+        // Autoplay blocked — will retry after user gesture unlock
+        howl.once("unlock", () => startPlayback(howl, vol));
       },
     });
 
     howlRef.current = howl;
-    howl.play();
+    startPlayback(howl, vol);
     playingRef.current = currentTrack;
+    // bgmVolume changes handled by dedicated effect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack, bgmEnabled]);
+
+  useEffect(() => {
+    const onUnlock = () => {
+      Howler.ctx?.resume();
+      if (howlRef.current && currentTrack && bgmEnabled) {
+        if (!howlRef.current.playing()) {
+          startPlayback(howlRef.current, bgmVolume);
+        }
+      }
+    };
+    window.addEventListener(AUDIO_UNLOCK_EVENT, onUnlock);
+    return () => window.removeEventListener(AUDIO_UNLOCK_EVENT, onUnlock);
+  }, [currentTrack, bgmEnabled, bgmVolume]);
 
   useEffect(() => {
     if (howlRef.current) {

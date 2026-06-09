@@ -1,21 +1,33 @@
 import { API_BASE } from "./config";
 
+/** Backend origin for static assets (/uploads). Falls back to API_BASE. */
+function assetBase(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_ASSET_URL ||
+    API_BASE;
+  return (fromEnv || "").replace(/\/$/, "");
+}
+
 /** Resolve avatar path from API to a browser-loadable URL. */
 export function resolveAvatarUrl(url: string | null | undefined): string | null {
   if (!url) return null;
 
-  // Strip cache-buster query before resolving base path
   const pathOnly = url.split("?")[0];
+  const query = url.includes("?") ? url.slice(url.indexOf("?")) : "";
 
   if (pathOnly.startsWith("http://") || pathOnly.startsWith("https://")) {
     return url;
   }
 
   if (pathOnly.startsWith("/")) {
-    // Same-origin: Next.js rewrites /uploads → backend when API_BASE is empty
-    // Cross-origin: prefix with API host from NEXT_PUBLIC_API_URL
-    const base = API_BASE.replace(/\/$/, "");
-    return base ? `${base}${pathOnly}` : pathOnly;
+    const base = assetBase();
+    // Cross-origin deploy: always prefix API host for /uploads
+    if (base) {
+      return `${base}${pathOnly}${query}`;
+    }
+    // Same-origin: Next.js rewrites /uploads → backend
+    return `${pathOnly}${query}`;
   }
 
   return url;

@@ -193,7 +193,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     try {
       const u = await authApi.me();
-      setUser(u);
+      setUser((prev) => {
+        // Preserve cache-busted avatar if path unchanged (avoid flash after upload)
+        if (prev?.avatar_url && u.avatar_url) {
+          const prevBase = prev.avatar_url.split("?")[0];
+          const nextBase = u.avatar_url.split("?")[0];
+          if (prevBase.endsWith(nextBase) || nextBase.endsWith(prevBase)) {
+            return { ...u, avatar_url: prev.avatar_url };
+          }
+        }
+        return u;
+      });
       setUserInk(u.ink ?? null);
     } catch {
       // ignore
