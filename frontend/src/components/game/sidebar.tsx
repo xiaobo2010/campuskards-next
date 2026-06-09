@@ -19,6 +19,7 @@ import {
   Key,
   Mail,
   Camera,
+  KeyRound,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { api } from "@/lib/api";
@@ -40,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
+import ResetPasswordDialog from "@/components/game/reset-password-dialog";
 import { UserAvatar } from "@/components/game/user-avatar";
 import { useUIStore, SIDEBAR_WIDTH_COLLAPSED, SIDEBAR_WIDTH_EXPANDED } from "@/store/useUIStore";
 
@@ -88,6 +90,7 @@ export default function Sidebar() {
   const [avatarDialog, setAvatarDialog] = useState(false);
   const [emailDialog, setEmailDialog] = useState(false);
   const [passwordDialog, setPasswordDialog] = useState(false);
+  const [resetPasswordDialog, setResetPasswordDialog] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
@@ -388,6 +391,15 @@ export default function Sidebar() {
                 >
                   <Key className="w-4 h-4 mr-2" /> 修改密码
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100 cursor-pointer"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setResetPasswordDialog(true);
+                  }}
+                >
+                  <KeyRound className="w-4 h-4 mr-2" /> 重置密码
+                </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-zinc-800" />
                 <DropdownMenuItem
                   className="text-red-400 focus:bg-zinc-800 focus:text-red-300 cursor-pointer"
@@ -486,6 +498,12 @@ export default function Sidebar() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ResetPasswordDialog
+        open={resetPasswordDialog}
+        onOpenChange={setResetPasswordDialog}
+        defaultUsername={user?.username}
+      />
 
       {/* Avatar upload dialog */}
       <AvatarUploadDialog

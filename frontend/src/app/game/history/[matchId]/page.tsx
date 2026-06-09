@@ -15,7 +15,9 @@ import {
   ScrollText,
   BarChart3,
   User,
+  PlayCircle,
 } from "lucide-react";
+import BattleReplayPlayer from "@/components/game/battle-replay-player";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatFaction } from "@/lib/faction-labels";
@@ -261,13 +263,13 @@ export default function MatchReportPage() {
           </Card>
         )}
 
-        {/* 事件日志 */}
-        <Card className="bg-zinc-900/80 border-zinc-800">
+        {/* 对战回放 */}
+        <Card className="bg-zinc-900/80 border-zinc-800 border-purple-500/20">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-zinc-200 flex items-center gap-2">
-              <ScrollText className="w-4 h-4" />
-              对局日志
-              <span className="text-xs font-normal text-zinc-500">({events.length} 条)</span>
+              <PlayCircle className="w-4 h-4 text-purple-400" />
+              对战回放
+              <span className="text-xs font-normal text-zinc-500">({events.length} 条事件)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -275,17 +277,36 @@ export default function MatchReportPage() {
               <p className="text-sm text-zinc-500 text-center py-6">
                 {match.status === "active"
                   ? "对局进行中，暂无完整战报"
-                  : "暂无事件日志（可能是较早版本的对局）"}
+                  : "暂无回放数据（可能是较早版本的对局）"}
               </p>
             ) : (
-              <div className="max-h-[28rem] overflow-y-auto pr-1">
+              <BattleReplayPlayer
+                events={events}
+                players={report?.players}
+                mySlot={mySlot}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 完整事件日志 */}
+        {events.length > 0 && (
+          <Card className="bg-zinc-900/80 border-zinc-800">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-zinc-200 flex items-center gap-2">
+                <ScrollText className="w-4 h-4" />
+                完整日志
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-[20rem] overflow-y-auto pr-1">
                 {events.map((ev, i) => (
                   <EventLogRow key={i} event={ev} index={i} />
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

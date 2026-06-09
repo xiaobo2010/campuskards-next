@@ -15,7 +15,10 @@ import {
   Swords,
   ChevronRight,
   Loader2,
+  PlayCircle,
+  ChevronDown,
 } from "lucide-react";
+import MatchReplaySection from "@/components/game/match-replay-section";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -97,6 +100,7 @@ export default function MatchHistoryPage() {
   const [filter, setFilter] = useState<ResultFilter>("all");
   const [loading, setLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
+  const [expandedReplayId, setExpandedReplayId] = useState<string | null>(null);
 
   const loadStats = useCallback(async () => {
     try {
@@ -258,63 +262,111 @@ export default function MatchHistoryPage() {
             ) : items.length === 0 ? (
               <p className="text-center text-zinc-500 py-10">暂无对战记录，去匹配一场吧！</p>
             ) : (
-              items.map((m) => (
-                <Link
-                  key={m.id}
-                  href={`/game/history/${m.id}`}
-                  className="flex items-center justify-between p-3 rounded-lg border border-zinc-800 bg-zinc-950/50 hover:border-purple-500/40 hover:bg-zinc-900 transition-colors group"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={cn(
-                        "w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold",
-                        m.result === "win" && "bg-emerald-500/20 text-emerald-400",
-                        m.result === "loss" && "bg-red-500/20 text-red-400",
-                        m.result === "draw" && "bg-zinc-700/50 text-zinc-400"
-                      )}
-                    >
-                      {m.result === "win" ? (
-                        <Trophy className="w-4 h-4" />
-                      ) : (
-                        RESULT_LABEL[m.result]?.[0]
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-100 truncate">
-                        vs {m.opponent.username}
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        {MODE_LABEL[m.mode]} · {formatDate(m.ended_at || m.started_at)}
-                        {m.turns_played != null && ` · ${m.turns_played} 回合`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    {m.mode === "ranked" && m.my_elo_change !== 0 && (
-                      <span
-                        className={cn(
-                          "text-sm font-mono font-medium",
-                          m.my_elo_change > 0 ? "text-emerald-400" : "text-red-400"
-                        )}
-                      >
-                        {m.my_elo_change > 0 ? "+" : ""}
-                        {m.my_elo_change}
-                      </span>
+              items.map((m) => {
+                const replayOpen = expandedReplayId === m.id;
+                return (
+                  <div
+                    key={m.id}
+                    className={cn(
+                      "rounded-lg border border-zinc-800 bg-zinc-950/50 transition-colors",
+                      replayOpen && "border-purple-500/40 bg-zinc-900"
                     )}
-                    <span
-                      className={cn(
-                        "text-xs px-2 py-0.5 rounded-full",
-                        m.result === "win" && "bg-emerald-500/15 text-emerald-400",
-                        m.result === "loss" && "bg-red-500/15 text-red-400",
-                        m.result === "draw" && "bg-zinc-700/50 text-zinc-400"
-                      )}
-                    >
-                      {RESULT_LABEL[m.result]}
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-purple-400" />
+                  >
+                    <div className="flex items-center justify-between p-3 gap-2">
+                      <Link
+                        href={`/game/history/${m.id}`}
+                        className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-90"
+                      >
+                        <div
+                          className={cn(
+                            "w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold",
+                            m.result === "win" && "bg-emerald-500/20 text-emerald-400",
+                            m.result === "loss" && "bg-red-500/20 text-red-400",
+                            m.result === "draw" && "bg-zinc-700/50 text-zinc-400"
+                          )}
+                        >
+                          {m.result === "win" ? (
+                            <Trophy className="w-4 h-4" />
+                          ) : (
+                            RESULT_LABEL[m.result]?.[0]
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-zinc-100 truncate">
+                            vs {m.opponent.username}
+                          </p>
+                          <p className="text-xs text-zinc-500">
+                            {MODE_LABEL[m.mode]} · {formatDate(m.ended_at || m.started_at)}
+                            {m.turns_played != null && ` · ${m.turns_played} 回合`}
+                          </p>
+                        </div>
+                      </Link>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {m.mode === "ranked" && m.my_elo_change !== 0 && (
+                          <span
+                            className={cn(
+                              "text-sm font-mono font-medium hidden sm:inline",
+                              m.my_elo_change > 0 ? "text-emerald-400" : "text-red-400"
+                            )}
+                          >
+                            {m.my_elo_change > 0 ? "+" : ""}
+                            {m.my_elo_change}
+                          </span>
+                        )}
+                        <span
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded-full hidden sm:inline",
+                            m.result === "win" && "bg-emerald-500/15 text-emerald-400",
+                            m.result === "loss" && "bg-red-500/15 text-red-400",
+                            m.result === "draw" && "bg-zinc-700/50 text-zinc-400"
+                          )}
+                        >
+                          {RESULT_LABEL[m.result]}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={replayOpen ? "default" : "outline"}
+                          className={cn(
+                            "h-8 text-xs gap-1",
+                            replayOpen
+                              ? "bg-purple-600 hover:bg-purple-500"
+                              : "border-zinc-700 text-zinc-400"
+                          )}
+                          onClick={() =>
+                            setExpandedReplayId(replayOpen ? null : m.id)
+                          }
+                        >
+                          <PlayCircle className="w-3.5 h-3.5" />
+                          回放
+                          <ChevronDown
+                            className={cn(
+                              "w-3 h-3 transition-transform",
+                              replayOpen && "rotate-180"
+                            )}
+                          />
+                        </Button>
+                        <Link
+                          href={`/game/history/${m.id}`}
+                          className="text-zinc-600 hover:text-purple-400 p-1"
+                          aria-label="查看战报详情"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
+                      </div>
+                    </div>
+                    {replayOpen && (
+                      <div className="px-3 pb-3 pt-0 border-t border-zinc-800/80">
+                        <MatchReplaySection
+                          matchId={m.id}
+                          myUserId={user?.id}
+                          compact
+                        />
+                      </div>
+                    )}
                   </div>
-                </Link>
-              ))
+                );
+              })
             )}
 
             {totalPages > 1 && (

@@ -2,12 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2 } from "lucide-react";
+import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, KeyRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 
 import AvatarUploadDialog from "@/components/game/avatar-upload-dialog";
+import ResetPasswordDialog from "@/components/game/reset-password-dialog";
 import { UserAvatar } from "@/components/game/user-avatar";
 
 export default function MobileHeader() {
@@ -16,6 +17,7 @@ export default function MobileHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [avatarDialog, setAvatarDialog] = useState(false);
+  const [resetPasswordDialog, setResetPasswordDialog] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
 
@@ -161,6 +163,23 @@ export default function MobileHeader() {
                     修改头像
                   </button>
                   <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setResetPasswordDialog(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors duration-150"
+                    style={{ color: "var(--text-primary)" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    重置密码
+                  </button>
+                  <button
                     onClick={async () => {
                       setMenuOpen(false);
                       await logout();
@@ -248,6 +267,11 @@ export default function MobileHeader() {
           onOpenChange={setAvatarDialog}
           currentAvatar={user?.avatar_url}
           username={user?.username}
+        />
+        <ResetPasswordDialog
+          open={resetPasswordDialog}
+          onOpenChange={setResetPasswordDialog}
+          defaultUsername={user?.username}
         />
       </AnimatePresence>
     </>
