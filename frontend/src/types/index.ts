@@ -73,6 +73,7 @@ export interface Deck {
   user_id: string;
   name: string;
   faction_code: string;
+  ally_faction_code?: string | null;
   is_default?: boolean;
   created_at?: string | null;
   entries: DeckCardEntry[];
@@ -89,6 +90,7 @@ export interface DeckListItem {
 export interface DeckCreateRequest {
   name: string;
   faction_code?: string;
+  ally_faction_code?: string | null;
   cards?: { card_id: string; quantity: number }[];
 }
 
@@ -96,7 +98,6 @@ export interface DeckListOut {
   id: string;
   name: string;
   faction_code: string;
-  cards: DeckCardEntry[];
   card_count?: number;
   created_at?: string | null;
 }
@@ -213,7 +214,7 @@ export interface OpponentInfo {
   elo: number;
 }
 
-export type MatchMode = "quick" | "ranked" | "pve";
+export type MatchMode = "quick" | "ranked" | "pve" | "story";
 
 export interface MatchQueueResponse {
   status: string;
@@ -258,6 +259,10 @@ export interface BattleUnit {
   immune_turns?: number;
   silenced_turns?: number;
   controlled?: boolean;
+  has_ability?: boolean;
+  can_use_ability?: boolean;
+  ability_cooldown?: number;
+  ability_max_cooldown?: number;
 }
 
 export interface EffectChoiceOption {
@@ -474,4 +479,75 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   page_size: number;
+}
+
+// ---------- Story ----------
+
+export interface StoryChapter {
+  id: string;
+  chapter_num: number;
+  title: string;
+  subtitle?: string | null;
+  cover_image?: string | null;
+  unlocked: boolean;
+  total_levels: number;
+  completed_levels: number;
+  total_stars: number;
+  levels: StoryLevelSummary[];
+}
+
+export interface StoryLevelSummary {
+  id: string;
+  level_num: number;
+  title: string;
+  enemy_name: string;
+  difficulty: "easy" | "medium" | "hard" | "expert";
+  unlocked: boolean;
+  completed: boolean;
+  stars: number;
+  rewards: { ink: number; cards: string[] };
+}
+
+export interface StoryLevelDetail extends StoryLevelSummary {
+  enemy_faction: string;
+  special_rules: StorySpecialRules;
+  star_conditions: StarCondition[];
+  max_turns: number;
+}
+
+export interface StorySpecialRules {
+  starting_ink?: number;
+  enemy_ink_bonus?: number;
+  enemy_hq_hp_bonus?: number;
+  banned_factions?: string[];
+  passive_effects?: Record<string, string>;
+}
+
+export interface StarCondition {
+  desc: string;
+  type: "win" | "hp_percent" | "max_turns" | "no_unit_deaths";
+  threshold?: number | null;
+}
+
+export interface StoryPlayResponse {
+  status: string;
+  mode: "story";
+  match_id: string;
+  level_id: string;
+  enemy_name: string;
+  enemy_faction: string;
+  difficulty: string;
+  star_conditions: StarCondition[];
+  special_rules: StorySpecialRules;
+}
+
+export interface StoryChaptersResponse {
+  chapters: StoryChapter[];
+}
+
+export interface StoryProgress {
+  total_levels: number;
+  completed_levels: number;
+  total_stars: number;
+  chapters_completed: number;
 }

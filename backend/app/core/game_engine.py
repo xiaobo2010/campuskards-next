@@ -104,6 +104,9 @@ class CardInstance:
     _temp_spirit: int = 0
     summoned_this_turn: bool = False
     duration: int = -1  # permanent (-1), or turns remaining for advisor/temporary units
+    has_used_ability: bool = False  # ability used this turn
+    ability_cooldown: int = 0  # turns until ability is ready again
+    ability_max_cooldown: int = 0  # total cooldown (display + reset reference)
 
     def __post_init__(self) -> None:
         if not self.base_power and self.power:
@@ -265,6 +268,9 @@ class GameState:
         for u in side.all_units:
             u.clear_temp_buffs()
             u.summoned_this_turn = False
+            u.has_used_ability = False
+            if u.ability_cooldown > 0:
+                u.ability_cooldown -= 1
 
         side.max_ink = min(side.max_ink + 1, self.max_ink_cap)
         side.ink = side.max_ink
@@ -780,6 +786,17 @@ class GameState:
             raise GameError(f"Unit {card_uid} not on your battlefield")
         if is_silenced(unit):
             raise GameError("该单位已被沉默")
+        if unit.has_used_ability:
+            raise GameError("该单位本回合已使用技能")
+        if unit.ability_cooldown > 0:
+            raise GameError(f"技能冷却中（剩余 {unit.ability_cooldown} 回合）")
+
+        # Parse cooldown from effect text before executing
+        from .card_keywords import parse_ability_cooldown
+        cd = parse_ability_cooldown(unit.effect_text or "")
+        unit.has_used_ability = True
+        unit.ability_cooldown = cd
+        unit.ability_max_cooldown = cd
 
         try:
             execute_active_ability(self, player, unit, target_uid=target_uid)

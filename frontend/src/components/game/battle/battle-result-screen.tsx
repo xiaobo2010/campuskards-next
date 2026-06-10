@@ -33,6 +33,7 @@ interface BattleResultScreenProps {
   viewer: "p1" | "p2";
   userId?: string;
   matchId?: string;
+  storyStars?: number;
   onBackToLobby: () => void;
 }
 
@@ -53,9 +54,11 @@ export default function BattleResultScreen({
   viewer,
   userId,
   matchId,
+  storyStars,
   onBackToLobby,
 }: BattleResultScreenProps) {
   const isWin = gameOver.winner_id === userId;
+  const isStory = gameOver.mode === "story";
   const rewards = gameOver.rewards;
   const summary = gameOver.battle_summary;
   const eventLog = gameOver.event_log ?? [];
@@ -120,6 +123,23 @@ export default function BattleResultScreen({
                 ELO {gameOver.elo_change[viewer] >= 0 ? "+" : ""}
                 {gameOver.elo_change[viewer]}
               </p>
+            )}
+            {isStory && storyStars != null && (
+              <div className="mt-3 flex items-center justify-center gap-1.5">
+                {[1, 2, 3].map((s) => (
+                  <span
+                    key={s}
+                    className={cn(
+                      "text-2xl transition-all",
+                      s <= (storyStars ?? 0)
+                        ? "text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]"
+                        : "text-zinc-700",
+                    )}
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
             )}
           </div>
 
@@ -236,12 +256,32 @@ export default function BattleResultScreen({
                 <Link href={`/game/history/${matchId}`}>查看完整战报</Link>
               </Button>
             )}
-            <Button
-              className="w-full bg-purple-600 hover:bg-purple-500"
-              onClick={onBackToLobby}
-            >
-              返回匹配
-            </Button>
+            {isStory ? (
+              <>
+                <Button
+                  className="w-full bg-amber-600 hover:bg-amber-500"
+                  onClick={onBackToLobby}
+                >
+                  返回故事地图
+                </Button>
+                {isWin && (
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="w-full border-amber-500/30 text-amber-300 hover:bg-amber-950/30"
+                  >
+                    <Link href="/game/story">章节总览</Link>
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button
+                className="w-full bg-purple-600 hover:bg-purple-500"
+                onClick={onBackToLobby}
+              >
+                返回匹配
+              </Button>
+            )}
           </div>
         </motion.div>
       </div>

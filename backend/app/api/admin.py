@@ -6,8 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pathlib import Path
 
-from scripts.seed_cards import seed as seed_cards
-
 from app.core.database import get_db
 from app.api.auth import _get_current_user, _require_admin
 from app.models import AdminAuditLog, User, Card, Announcement, UserCard
@@ -364,6 +362,8 @@ async def admin_reseed_cards(
 
     if not json_path:
         raise HTTPException(status_code=500, detail="未找到 card-data.json 文件")
+
+    from scripts.seed_cards import seed as seed_cards
 
     result = await seed_cards(db=db, json_path=json_path)
     await _audit_log(db, admin, "reseed_cards", "cards", "all",

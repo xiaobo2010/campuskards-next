@@ -111,7 +111,7 @@ export default function DecksPage() {
                       </CardTitle>
                       <CardDescription className="text-zinc-400 flex items-center gap-2">
                         <Layers className="w-4 h-4" />
-                        <span>{deck.card_count ?? deck.cards?.length ?? 0} 张卡牌</span>
+                        <span>{deck.card_count ?? 0} 张卡牌</span>
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">

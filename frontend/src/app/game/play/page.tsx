@@ -198,7 +198,7 @@ function PlayPageInner() {
   const wsRef = useRef<GameWsClient | null>(null);
   const [matchElapsed, setMatchElapsed] = useState(0);
 
-  const matchIdFromUrl = searchParams.get("match_id");
+  const matchIdFromUrl = searchParams.get("matchId");
   const storedMatchId = useMatchStore((s) => s.currentGameId);
   const opponent = useMatchStore((s) => s.opponent);
   const gameState = useMatchStore((s) => s.gameState);
@@ -226,6 +226,8 @@ function PlayPageInner() {
   const viewer = gameState?.viewer ?? "p1";
   const viewerRef = useRef(viewer);
   viewerRef.current = viewer;
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
   const me = gameState?.players[viewer];
   const oppKey = gameState?.opponent ?? (viewer === "p1" ? "p2" : "p1");
   const opp = gameState ? gameState.players[oppKey] : null;
@@ -298,6 +300,29 @@ function PlayPageInner() {
       onGameOver: (payload) => {
         setGameOver(payload);
         setSelectedAttackerUid(null);
+        // Story mode: report completion only if the player won
+        if (payload.mode === "story" && payload.winner_id === user?.id) {
+          const levelId = searchParams.get("levelId");
+          const matchIdParam = searchParams.get("matchId");
+          if (levelId && matchIdParam) {
+            import("@/lib/api").then(({ storyApi }) => {
+              const viewerSide = viewerRef.current;
+              const myPlayer = payload.players?.[viewerSide];
+              const hpRemaining = myPlayer?.final_hp ?? 0;
+              const maxHp = gameStateRef.current?.players[viewerSide]?.max_hp ?? 30;
+              const hpPercent = maxHp > 0 ? (hpRemaining / maxHp) * 100 : 0;
+              const turns = payload.turns_played ?? 0;
+              let stars = 0;
+              if (payload.winner_id === user?.id) stars++;
+              if (hpPercent >= 50) stars++;
+              if (turns <= 20) stars++;
+              storyApi.completeLevel(matchIdParam, levelId, stars, turns, hpRemaining)
+                .catch(() => {
+                  toast.error("保存故事进度失败");
+                });
+            });
+          }
+        }
       },
       onError: (detail) => {
         setLastError(detail);
@@ -447,8 +472,24 @@ function PlayPageInner() {
 
   const handleMyUnitDoubleClick = (unit: BattleUnit) => {
     if (!isMyTurn || phase !== "main") return;
+    if (abilityTargetMode === unit.uid) {
+      setAbilityTargetMode(null);
+      return;
+    }
+    if (!unit.has_ability) {
+      toast.info("该单位没有可激活的技能");
+      return;
+    }
+    if (!unit.can_use_ability) {
+      if (unit.ability_cooldown) {
+        toast.info(`技能冷却中（剩余 ${unit.ability_cooldown} 回合）`);
+      } else {
+        toast.info("该单位本回合已使用技能");
+      }
+      return;
+    }
     setAbilityTargetMode(unit.uid);
-    toast.info("请选择能力目标（或再次双击取消）");
+    toast.info("请选择技能目标（再次双击取消）");
   };
 
   const handleChoiceOption = (option: EffectChoiceOption) => {
@@ -525,7 +566,8 @@ function PlayPageInner() {
 
   const handleBackToLobby = () => {
     resetMatch();
-    router.push("/game/matchmaking");
+    const isStory = searchParams.get("mode") === "story";
+    router.push(isStory ? "/game/story" : "/game/matchmaking");
   };
 
   if (authLoading) {
@@ -829,6 +871,22 @@ function PlayPageInner() {
           viewer={viewer}
           userId={user?.id}
           matchId={matchId ?? undefined}
+          storyStars={
+            gameOver.mode === "story"
+              ? (() => {
+                  const my = gameOver.players?.[viewer];
+                  const hpRemaining = my?.final_hp ?? 0;
+                  const maxHp = gameState?.players[viewer]?.max_hp ?? 30;
+                  const hpPercent = maxHp > 0 ? (hpRemaining / maxHp) * 100 : 0;
+                  const turns = gameOver.turns_played ?? 0;
+                  let stars = 0;
+                  if (gameOver.winner_id === user?.id) stars++;
+                  if (hpPercent >= 50) stars++;
+                  if (turns <= 20) stars++;
+                  return stars;
+                })()
+              : undefined
+          }
           onBackToLobby={handleBackToLobby}
         />
       )}

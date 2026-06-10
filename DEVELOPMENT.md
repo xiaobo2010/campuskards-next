@@ -529,6 +529,7 @@ P1 支援线 (P1 Support Line)
 - [ ] **3.9** 对战页: 匹配 + 战场 UI
 - [x] **3.10** BGM/SFX 音频系统: howler.js + 场景切歌 + 首点解锁 + 设置页面滑条 (✅ 已完成)
 - [x] **3.11** 设置页面: 音频音量/开关 UI → `game/settings/page.tsx` + `store/useAudioStore.ts` (✅ 已完成)
+- [x] **3.12** 故事模式: 3章12关PvE剧情 → `api/story.py` + `app/game/story/*` + 3表模型 + 迁移 + Seed (✅ 2026-06-10)
 
 ### Phase 4 — 视觉打磨 & 性能 ⬜ 待完成
 - [ ] **4.1** 落实设计系统 tokens

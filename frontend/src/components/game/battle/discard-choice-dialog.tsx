@@ -22,20 +22,22 @@ export default function DiscardChoiceDialog({
   onToggle,
   onConfirm,
 }: DiscardChoiceDialogProps) {
-  if (!open || pending.context !== "discard") return null;
+  if (pending.context !== "discard") return null;
   const need = pending.discard_count ?? 0;
 
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      >
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+        >
         <motion.div
           initial={{ y: 24, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 24, opacity: 0 }}
           className="w-full max-w-lg rounded-2xl border border-amber-500/30 bg-zinc-900/95 shadow-2xl overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-2">
@@ -44,7 +46,7 @@ export default function DiscardChoiceDialog({
               <p className="text-sm font-semibold text-zinc-100">选择要弃置的牌</p>
               <p className="text-xs text-zinc-500">
                 已选 {selectedUids.length}/{need}
-                {pending.source_name && ` · ${pending.source_name}`}
+                {pending.source_name && ` \u00b7 ${pending.source_name}`}
               </p>
             </div>
           </div>
@@ -78,8 +80,9 @@ export default function DiscardChoiceDialog({
               确认弃牌
             </button>
           </div>
+          </motion.div>
         </motion.div>
-      </motion.div>
+      )}
     </AnimatePresence>
   );
 }

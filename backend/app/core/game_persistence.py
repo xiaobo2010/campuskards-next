@@ -47,6 +47,9 @@ def _card_to_dict(card: CardInstance) -> dict[str, Any]:
         "_faction_passive_power": card._faction_passive_power,
         "_perm_power_mod": card._perm_power_mod,
         "duration": card.duration,
+        "has_used_ability": card.has_used_ability,
+        "ability_cooldown": card.ability_cooldown,
+        "ability_max_cooldown": card.ability_max_cooldown,
     }
 
 
@@ -81,6 +84,9 @@ def _card_from_dict(data: dict[str, Any]) -> CardInstance:
     card.controlled_by = data.get("controlled_by")
     card.controlled_until_turn = data.get("controlled_until_turn", 0)
     card.duration = data.get("duration", -1)
+    card.has_used_ability = data.get("has_used_ability", False)
+    card.ability_cooldown = data.get("ability_cooldown", 0)
+    card.ability_max_cooldown = data.get("ability_max_cooldown", 0)
     card._faction_passive_power = data.get("_faction_passive_power", 0)
     card._perm_power_mod = data.get("_perm_power_mod", 0)
     card._synergy_power = data.get("_synergy_power", 0)

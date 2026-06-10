@@ -128,6 +128,20 @@ export default function BattleCard({
         <Swords className="absolute top-1 right-1 w-3.5 h-3.5 text-amber-300 drop-shadow" />
       )}
 
+      {!isHand && unit.has_ability && (
+        <span
+          className={cn(
+            "absolute top-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-black/50 border flex items-center justify-center text-[8px] font-bold",
+            unit.can_use_ability
+              ? "border-cyan-400/60 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.3)]"
+              : "border-zinc-600/60 text-zinc-500"
+          )}
+          title={unit.can_use_ability ? "技能就绪" : unit.ability_cooldown ? `冷却中 (${unit.ability_cooldown})` : "技能已使用"}
+        >
+          {unit.can_use_ability ? "✦" : unit.ability_cooldown ? unit.ability_cooldown : "·"}
+        </span>
+      )}
+
       {!isHand && <SynergyBadges tags={unit.synergy_tags} />}
 
       {!isHand && unit.immune_turns != null && unit.immune_turns > 0 && (

@@ -5,7 +5,6 @@ import type { Card } from "@/types";
 
 interface CardPlaceholderProps {
   card?: Card;
-  isOwned?: boolean;
   onClick?: () => void;
   className?: string;
   children?: React.ReactNode;

@@ -23,6 +23,7 @@ from app.api.decks import router as decks_router
 from app.api.leaderboard import router as leaderboard_router
 from app.api.match import router as match_router
 from app.api.shop import router as shop_router
+from app.api.story import router as story_router
 from app.api.user import router as user_router
 from app.core.cache import close_redis, get_redis
 from app.core.config import settings
@@ -44,6 +45,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning("Database not reachable on startup: %s", exc)
 
     await game_manager.start()
+
+    # Ensure uploads directory exists
+    uploads_path = Path(__file__).parent / "uploads"
+    uploads_path.mkdir(parents=True, exist_ok=True)
 
     # ── AI 自动补位快速匹配 ──
     from app.core.database import async_session
@@ -121,6 +126,7 @@ app.include_router(announcements_router)
 app.include_router(admin_router)
 app.include_router(collection_router)
 app.include_router(shop_router)
+app.include_router(story_router)
 app.include_router(checkin_router)
 app.include_router(user_router)
 app.include_router(leaderboard_router)
@@ -129,7 +135,6 @@ app.include_router(ws_router)
 
 # Mount uploads directory for serving avatar images
 uploads_path = Path(__file__).parent / "uploads"
-uploads_path.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
 
 

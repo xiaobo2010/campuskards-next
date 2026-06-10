@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .card_keywords import has_active_ability
 from .game_engine import CardInstance, Phase
 
 if TYPE_CHECKING:
@@ -44,6 +45,14 @@ def _unit_public(unit: CardInstance) -> dict:
         "immune_turns": unit.immune_turns,
         "silenced_turns": unit.silenced_turns,
         "controlled": unit.controlled_by is not None,
+        "has_ability": has_active_ability(unit.effect_text or ""),
+        "can_use_ability": (
+            has_active_ability(unit.effect_text or "")
+            and not unit.has_used_ability
+            and unit.ability_cooldown <= 0
+        ),
+        "ability_cooldown": unit.ability_cooldown,
+        "ability_max_cooldown": unit.ability_max_cooldown,
     }
 
 

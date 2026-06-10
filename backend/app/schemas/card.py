@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_serializer, Field, model_validator
+from pydantic import BaseModel, field_serializer, Field
 from datetime import datetime
 
 
@@ -23,65 +23,7 @@ class CardOut(BaseModel):
     is_token: bool = False
     set_code: str = "S1"
 
-    model_config = {"from_attributes": True, "populate_by_name": True}
-
-    @model_validator(mode="before")
-    @classmethod
-    def map_legacy_fields(cls, data):
-        """Map old DB column names to new schema field names.
-        
-        DB columns:  faction, type, attack, defense, hp, ability, flavor, subtype
-        Schema expects: faction_code, card_type, power, grit, spirit, effect_text, flavor_text, unit_type
-        """
-        if not isinstance(data, dict):
-            # It's a SQLAlchemy model object — access attributes
-            # Use getattr with defaults to handle both old and new column names
-            mapping = {
-                "faction_code": ("faction_code", "faction"),
-                "card_type": ("card_type", "type"),
-                "power": ("power", "attack"),
-                "grit": ("grit", "defense"),
-                "spirit": ("spirit", "hp"),
-                "effect_text": ("effect_text", "ability"),
-                "flavor_text": ("flavor_text", "flavor"),
-                "unit_type": ("unit_type", "subtype"),
-                "name_en": ("name_en",),
-                "effect_code": ("effect_code",),
-                "artist": ("artist",),
-                "image_url": ("image_url",),
-                "is_token": ("is_token",),
-                "set_code": ("set_code",),
-            }
-            result = {}
-            for schema_field, db_fields in mapping.items():
-                for db_field in db_fields:
-                    val = getattr(data, db_field, None)
-                    if val is not None:
-                        result[schema_field] = val
-                        break
-            
-            # Required fields
-            result["id"] = getattr(data, "id")
-            result["name"] = getattr(data, "name")
-            result["cost"] = getattr(data, "cost", 0)
-            result["rarity"] = getattr(data, "rarity", "common")
-            return result
-        
-        # Dict input — map legacy keys
-        key_map = {
-            "faction": "faction_code",
-            "type": "card_type",
-            "attack": "power",
-            "defense": "grit",
-            "hp": "spirit",
-            "ability": "effect_text",
-            "flavor": "flavor_text",
-            "subtype": "unit_type",
-        }
-        for old_key, new_key in key_map.items():
-            if old_key in data and new_key not in data:
-                data[new_key] = data[old_key]
-        return data
+    model_config = {"from_attributes": True}
 
     @field_serializer('id')
     def serialize_id(self, v) -> str:

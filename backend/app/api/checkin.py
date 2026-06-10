@@ -1,5 +1,6 @@
 """Check-in (daily reward) API — /api/checkin"""
 
+import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
@@ -12,30 +13,6 @@ from app.models import User
 from app.api.auth import _get_current_user
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
-
-_table_ready = False
-
-
-async def _ensure_checkins_table(db: AsyncSession) -> None:
-    """Create user_checkins table on first use if migration was not run."""
-    global _table_ready
-    if _table_ready:
-        return
-    await db.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS user_checkins (
-                id SERIAL PRIMARY KEY,
-                user_id VARCHAR(64) NOT NULL,
-                checkin_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                streak INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(user_id, checkin_date)
-            )
-            """
-        )
-    )
-    await db.commit()
-    _table_ready = True
 
 
 class CheckinStatusResponse(BaseModel):
@@ -66,7 +43,7 @@ def _next_reward(streak: int) -> dict:
     return {"day": next_streak, "ink": _ink_reward(next_streak)}
 
 
-async def _get_streak_info(db: AsyncSession, user_id: str) -> tuple[int, bool, int]:
+async def _get_streak_info(db: AsyncSession, user_id: uuid.UUID) -> tuple[int, bool, int]:
     today = date.today()
     yesterday = today - timedelta(days=1)
 
@@ -103,8 +80,7 @@ async def checkin_status(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinStatusResponse:
-    await _ensure_checkins_table(db)
-    streak, checked_in, total = await _get_streak_info(db, str(user.id))
+    streak, checked_in, total = await _get_streak_info(db, user.id)
     display_streak = streak if checked_in else (streak if streak > 0 else 0)
     return CheckinStatusResponse(
         checked_in_today=checked_in,
@@ -119,16 +95,15 @@ async def daily_checkin(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinResponse:
-    await _ensure_checkins_table(db)
     today = date.today()
     yesterday = today - timedelta(days=1)
 
     today_result = await db.execute(
         text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": str(user.id), "d": today},
+        {"uid": user.id, "d": today},
     )
     if today_result.scalar() is not None:
-        streak, _, total = await _get_streak_info(db, str(user.id))
+        streak, _, total = await _get_streak_info(db, user.id)
         return CheckinResponse(
             streak=streak,
             reward={"ink": 0},
@@ -137,7 +112,7 @@ async def daily_checkin(
 
     yesterday_result = await db.execute(
         text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": str(user.id), "d": yesterday},
+        {"uid": user.id, "d": yesterday},
     )
     yesterday_streak = int(yesterday_result.scalar() or 0)
     new_streak = yesterday_streak + 1 if yesterday_streak > 0 else 1
@@ -151,14 +126,14 @@ async def daily_checkin(
             "VALUES (:uid, :d, :streak) "
             "ON CONFLICT (user_id, checkin_date) DO NOTHING"
         ),
-        {"uid": str(user.id), "d": today, "streak": new_streak},
+        {"uid": user.id, "d": today, "streak": new_streak},
     )
     await db.commit()
 
     total = (
         await db.execute(
             text("SELECT COUNT(*) FROM user_checkins WHERE user_id = :uid"),
-            {"uid": str(user.id)},
+            {"uid": user.id},
         )
     ).scalar() or 0
 

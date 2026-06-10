@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, KeyRound } from "lucide-react";
+import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, KeyRound, Map } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -41,6 +41,7 @@ export default function MobileHeader() {
     { href: "/game/shop", icon: ShoppingBag, label: "商店" },
     { href: "/game/leaderboard", icon: Trophy, label: "排名" },
     { href: "/game/history", icon: History, label: "战绩" },
+    { href: "/game/story", icon: Map, label: "故事" },
     { href: "/game/settings", icon: Settings2, label: "设置" },
     ...(user?.role === "admin"
       ? [{ href: "/game/admin", icon: Settings2, label: "管理游戏" }]
@@ -263,18 +264,18 @@ export default function MobileHeader() {
             </motion.nav>
           </>
         )}
-        <AvatarUploadDialog
-          open={avatarDialog}
-          onOpenChange={setAvatarDialog}
-          currentAvatar={user?.avatar_url}
-          username={user?.username}
-        />
-        <ResetPasswordDialog
-          open={resetPasswordDialog}
-          onOpenChange={setResetPasswordDialog}
-          defaultUsername={user?.username}
-        />
       </AnimatePresence>
+      <AvatarUploadDialog
+        open={avatarDialog}
+        onOpenChange={setAvatarDialog}
+        currentAvatar={user?.avatar_url}
+        username={user?.username}
+      />
+      <ResetPasswordDialog
+        open={resetPasswordDialog}
+        onOpenChange={setResetPasswordDialog}
+        defaultUsername={user?.username}
+      />
     </>
   );
 }

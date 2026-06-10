@@ -24,15 +24,23 @@ CARD_FIELD_MAP = {
     "id": "id",
     "name": "name",
     "faction": "faction_code",
+    "faction_code": "faction_code",
     "type": "card_type",
+    "card_type": "card_type",
     "subtype": "unit_type",
+    "unit_type": "unit_type",
     "cost": "cost",
     "attack": "power",
+    "power": "power",
     "defense": "grit",
+    "grit": "grit",
     "hp": "spirit",
+    "spirit": "spirit",
     "ability": "effect_text",
+    "effect_text": "effect_text",
     "rarity": "rarity",
     "flavor": "flavor_text",
+    "flavor_text": "flavor_text",
 }
 
 # Card type mapping: JSON type values -> DB card_type enum

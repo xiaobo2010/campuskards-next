@@ -1,528 +1,279 @@
+#!/usr/bin/env python3
+"""Expand card-data.json from ~304 to ~500 cards with active abilities."""
+
 import json
-import random
-from collections import Counter
+import sys
 from pathlib import Path
 
-random.seed(42)
+FILE = Path(__file__).resolve().parent / "card-data.json"
 
-# Path relative to this script's directory
-DATA_DIR = Path(__file__).resolve().parent
-json_path = DATA_DIR / "card-data.json"
+# ─── All new cards, organized by faction ───
+# Format matches the old schema (faction, type, subtype, attack, defense, hp, ability, flavor)
+# so the existing seed_cards.py transform works without changes.
+# Active abilities use the "主动：...（冷却 N）" syntax.
 
-with open(json_path, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-existing = data['cards']
-existing_ids = {c['id'] for c in existing}
-existing_names = {c['name'] for c in existing}
-
-# --- Target counts ---
-TARGET = {
-    'faction': {'key_class': 55, 'arts_class': 50, 'normal_class': 55, 'intl_class': 50, 'competition_class': 50, 'neutral': 40},
-    'type': {'unit': 204, 'command': 48, 'counter': 18, 'buff': 30},
-    'rarity': {'common': 93, 'uncommon': 102, 'rare': 87, 'legendary': 18},
-}
-
-current = {
-    'faction': Counter(c['faction'] for c in existing),
-    'type': Counter(c['type'] for c in existing),
-    'rarity': Counter(c['rarity'] for c in existing),
-}
-
-needed = {
-    'faction': {k: v - current['faction'].get(k, 0) for k, v in TARGET['faction'].items()},
-    'type': {k: v - current['type'].get(k, 0) for k, v in TARGET['type'].items()},
-    'rarity': {k: v - current['rarity'].get(k, 0) for k, v in TARGET['rarity'].items()},
-}
-
-print("Needed counts:")
-print(f"  Faction: {needed['faction']}")
-print(f"  Type: {needed['type']}")
-print(f"  Rarity: {needed['rarity']}")
-
-total_needed = sum(needed['faction'].values())
-print(f"  Total new cards: {total_needed}")
-
-assert total_needed == 203, f"Expected 203 new cards, got {total_needed}"
-
-# --- Helpers ---
-PREFIX = {
-    'key_class': 'kc', 'arts_class': 'ac', 'normal_class': 'nc',
-    'intl_class': 'ic', 'competition_class': 'cc', 'neutral': 'ne',
-}
-
-FACTION_NAMES = {
-    'key_class': ['重点班', '重点', '强化', '冲刺', '升学'],
-    'arts_class': ['艺体班', '艺术', '文艺', '才艺', '特长'],
-    'normal_class': ['普通班', '平凡', '日常', '大众', '平民'],
-    'intl_class': ['国际班', '海外', '全球', '双语', '出国'],
-    'competition_class': ['竞赛班', '竞赛', '奥赛', '精英', '天才'],
-    'neutral': ['校园', '全校', '通用', '基础', '综合'],
-}
-
-# Cost distribution weights (more frequent at 2-4)
-COST_WEIGHTS = {0: 2, 1: 8, 2: 18, 3: 22, 4: 20, 5: 14, 6: 9, 7: 5, 8: 2, 9: 1}
-
-# Unit name parts per faction
-UNIT_PREFIXES = {
-    'key_class': ['考', '分', '题', '卷', '课', '笔', '试', '学'],
-    'arts_class': ['画', '乐', '舞', '歌', '艺', '彩', '琴', '演'],
-    'normal_class': ['桌', '窗', '椅', '书', '笔', '纸', '班', '校'],
-    'intl_class': ['英', '外', '留', '语', '出', '世', '跨', '双'],
-    'competition_class': ['竞', '赛', '奖', '冠', '牌', '智', '超', '奥'],
-    'neutral': ['校', '师', '室', '场', '楼', '堂', '园', '台'],
-}
-
-UNIT_SUFFIXES = {
-    'key_class': ['霸', '王', '神', '手', '狂', '魔', '侠', '圣'],
-    'arts_class': ['星', '家', '师', '手', '匠', '者', '魂', '仙'],
-    'normal_class': ['达', '人', '仔', '娃', '虫', '友', '君', '客'],
-    'intl_class': ['者', '官', '使', '才', '生', '士', '杰', '英'],
-    'competition_class': ['帝', '皇', '神', '灵', '尊', '魁', '圣', '仙'],
-    'neutral': ['长', '员', '生', '工', '手', '者', '家', '师'],
-}
-
-# Non-unit name parts per faction
-CMD_NAMES = {
-    'key_class': ['突击测验', '模拟考试', '重点复习', '试卷讲评', '错题重做', '专项训练', '考前押题', '强化集训'],
-    'arts_class': ['艺术节', '音乐会', '画展', '才艺秀', '文艺汇演', '即兴创作', '舞台彩排', '作品展'],
-    'normal_class': ['大扫除', '班会课', '换座位', '听写', '课间操', '眼保健操', '自习课', '值周'],
-    'intl_class': ['英语角', '模联会议', '辩论赛', '留学讲座', '文化交流', '外语节', '海外研学', '国际日'],
-    'competition_class': ['竞赛辅导', '实验研究', '论文答辩', '解题大赛', '集训选拔', '学术论坛', '课题攻关', '备战集训'],
-    'neutral': ['升旗仪式', '开学典礼', '运动会', '家长开放日', '消防演习', '校园开放日', '表彰大会', '社会实践'],
-}
-
-COUNTER_NAMES = {
-    'key_class': ['分数排名', '重点班淘汰', '违纪处分', '成绩下滑', '降级通知', '摸底考砸'],
-    'arts_class': ['演出事故', '走音警告', '颜料泼洒', '忘词危机', '灯光故障', '服装出错'],
-    'normal_class': ['点名被抓', '迟到记录', '睡觉被捉', '手机没收', '作业忘带', '讲话被记'],
-    'intl_class': ['签证被拒', '语言障碍', '推荐信差评', '面试翻车', '文书重写', '申请被拒'],
-    'competition_class': ['竞赛失利', '实验失败', '名额被挤', '成绩被翻', '课题被拒', '资格取消'],
-    'neutral': ['停课通知', '全校通报', '突击检查', '临时抽查', '纪律处分', '通报批评'],
-}
-
-BUFF_NAMES = {
-    'key_class': ['题海战术', '满分秘籍', '重点笔记', '状元笔记', '冲刺打卡', '高分喷雾'],
-    'arts_class': ['灵感光环', '完美音准', '创作源泉', '舞台魅力', '艺术气息', '创意工坊'],
-    'normal_class': ['团结光环', '众志成城', '人海战术', '集体荣誉', '班级凝聚', '友谊之力'],
-    'intl_class': ['语言天赋', '名校推荐', '全额奖学金', '交换机会', '海外视野', '国际认证'],
-    'competition_class': ['天赋觉醒', '题感爆发', '决赛入场', '金牌导师', '超常发挥', '夺冠时刻'],
-    'neutral': ['校训激励', '学霸光环', '幸运眷顾', '校园祝福', '青春之力', '梦想加持'],
-}
-
-FLAVOR_TEMPLATES = [
-    "据说{name}每天只睡5小时——难怪在教室里从来不眨眼",
-    "没有人知道{name}为什么这么强，大概是因为家里开补习班的",
-    "{name}出现的时候，空气里都是粉笔灰的味道",
-    "班主任说：你们要有{name}一半努力，我就退休了",
-    "{name}的战绩贴在公告栏上，每次路过都有人膜拜",
-    "据不完全统计，{name}一学期用掉的笔芯能绕操场三圈",
-    "同学们都说{name}不是人，是行走的考试答案",
-    "面对{name}的压迫感，就像面对一叠没写的暑假作业",
-    "传说{name}的笔记本可以卖到全校最高价",
-    "每当{name}出手，胜负就已经确定了",
-    "没有人能阻止{name}，除非断网断电",
-    "{name}的存在本身就是一个传说，一个关于分数的传说",
-    "食堂阿姨都认识{name}，因为从来不打饭",
-    "体育老师最讨厌{name}，因为体育课总被占",
-    "校长办公室挂着{name}的照片——作警示用",
-    "连对面的班级都在传颂{name}的威名",
-    "{name}不鸣则已，一鸣惊人——主要是不鸣的时候在睡觉",
-    "教务处专门为{name}设立了一个奖项",
-    "听闻{name}来了，对手的笔都吓掉了",
-    "{name}从不回头看爆炸——因为试卷已经改完了",
-    "不是{name}太强，是对手太弱——当然{name}也确实很强",
-    "据说{name}的课桌里藏着一整套模拟卷",
-    "放学后{name}还在教室做题，保安都不敢赶",
-    "老师批改{name}的试卷是最轻松的——因为全对",
-    "同学们都希望和{name}一组——除了对手",
+NEW_CARDS = [
+    # ═══════════════════════════════════════════
+    # key_class (重点班) — 35 new cards
+    # Identity: hand-size synergy, precision, discipline
+    # ═══════════════════════════════════════════
+    
+    # -- student units --
+    {"id": "kc_student_005", "name": "刷题机器人", "faction": "key_class", "type": "unit", "subtype": "student", "cost": 1, "attack": 2, "defense": 1, "hp": 2, "ability": "主动：本回合+2攻击（冷却 1）", "rarity": "common", "flavor": "代码写得比情书还长"},
+    {"id": "kc_student_006", "name": "错题本收集者", "faction": "key_class", "type": "unit", "subtype": "student", "cost": 3, "attack": 3, "defense": 1, "hp": 3, "ability": "出场时：若手牌≤2张，抽2张牌", "rarity": "uncommon", "flavor": "每一道错题都是通往清北的垫脚石"},
+    {"id": "kc_student_007", "name": "晚自习监察员", "faction": "key_class", "type": "unit", "subtype": "student", "cost": 4, "attack": 3, "defense": 2, "hp": 5, "ability": "双方手牌上限-1（不可叠加）", "rarity": "rare", "flavor": "「交手机，不许说话，不许传纸条」"},
+    
+    # -- sports units --
+    {"id": "kc_sports_003", "name": "早操领跑员", "faction": "key_class", "type": "unit", "subtype": "sports", "cost": 1, "attack": 1, "defense": 1, "hp": 3, "ability": "「冲锋」", "rarity": "common", "flavor": "六点半，操场见"},
+    {"id": "kc_sports_004", "name": "体能强化班", "faction": "key_class", "type": "unit", "subtype": "sports", "cost": 5, "attack": 5, "defense": 2, "hp": 5, "ability": "主动：获得「穿透」直到回合结束（冷却 2）", "rarity": "rare", "flavor": "跑完五千米再来十组蛙跳"},
+    {"id": "kc_sports_005", "name": "跳绳冠军", "faction": "key_class", "type": "unit", "subtype": "sports", "cost": 2, "attack": 3, "defense": 1, "hp": 2, "ability": "攻击时：对目标相邻单位造成1点伤害", "rarity": "uncommon", "flavor": "绳子快到看不见了"},
+    
+    # -- discipline units --
+    {"id": "kc_discipline_003", "name": "校风纠察队", "faction": "key_class", "type": "unit", "subtype": "discipline", "cost": 3, "attack": 2, "defense": 3, "hp": 3, "ability": "回合开始时：对敌方HQ造成1点伤害", "rarity": "common", "flavor": "「校牌戴好，头发剪短」"},
+    {"id": "kc_discipline_004", "name": "早读督查", "faction": "key_class", "type": "unit", "subtype": "discipline", "cost": 2, "attack": 2, "defense": 2, "hp": 2, "ability": "沉默一个攻击力≤3的敌方单位", "rarity": "rare", "flavor": "「大声点，我听不见！」"},
+    {"id": "kc_discipline_005", "name": "纪律标兵", "faction": "key_class", "type": "unit", "subtype": "discipline", "cost": 4, "attack": 4, "defense": 2, "hp": 4, "ability": "出场时：抽1张牌。每回合第一次打出牌时费用-1", "rarity": "epic", "flavor": "上课从不说话——因为他在睡觉"},
+    
+    # -- scholar units --
+    {"id": "kc_scholar_004", "name": "奥数金牌得主", "faction": "key_class", "type": "unit", "subtype": "scholar", "cost": 5, "attack": 4, "defense": 2, "hp": 6, "ability": "「先攻」。主动：抽1张牌（冷却 3）", "rarity": "legendary", "flavor": "IMO金牌？不过是敲门砖"},
+    {"id": "kc_scholar_005", "name": "古文默写机", "faction": "key_class", "type": "unit", "subtype": "scholar", "cost": 2, "attack": 2, "defense": 2, "hp": 2, "ability": "亡语：给手牌中费用最高的牌费用-1", "rarity": "uncommon", "flavor": "「《出师表》——预备，起！」"},
+    {"id": "kc_scholar_006", "name": "化学课代表", "faction": "key_class", "type": "unit", "subtype": "scholar", "cost": 3, "attack": 3, "defense": 1, "hp": 4, "ability": "出场时：对敌方所有单位造成1点伤害", "rarity": "uncommon", "flavor": "把实验室的氨水味带到了教室"},
+    
+    # -- broadcast units --
+    {"id": "kc_broadcast_003", "name": "课间操广播", "faction": "key_class", "type": "unit", "subtype": "broadcast", "cost": 6, "attack": 5, "defense": 3, "hp": 5, "ability": "主动：对所有敌方单位造成3点伤害（冷却 3）", "rarity": "legendary", "flavor": "「第八套广播体操——现在开始！」"},
+    {"id": "kc_broadcast_004", "name": "听力播音员", "faction": "key_class", "type": "unit", "subtype": "broadcast", "cost": 4, "attack": 3, "defense": 1, "hp": 4, "ability": "「空军」。回合结束时：所有敌方单位-1攻击（本回合）", "rarity": "rare", "flavor": "「听力部分现在开始，试音……」"},
+    
+    # -- command/event cards --
+    {"id": "kc_cmd_003", "name": "模拟考试", "faction": "key_class", "type": "command", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "抽2张牌，弃1张牌", "rarity": "common", "flavor": "考试——唯一一个分数越高越开心的折磨"},
+    {"id": "kc_cmd_004", "name": "重点班选拔", "faction": "key_class", "type": "command", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "抽1张牌。若手牌中刚好有3张牌，再抽1张", "rarity": "uncommon", "flavor": "只有前50名才能进的班级"},
+    {"id": "kc_command_009", "name": "校长讲话", "faction": "key_class", "type": "command", "subtype": None, "cost": 5, "attack": 0, "defense": 0, "hp": 0, "ability": "使所有友方单位永久+1/+0/+1，抽1张牌", "rarity": "epic", "flavor": "「我再讲两句话」——两小时过去了"},
+    {"id": "kc_command_010", "name": "家长会通知", "faction": "key_class", "type": "command", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "摧毁一个费用≤3的敌方单位。若手牌≤2张，改为摧毁一个费用≤5的敌方单位", "rarity": "rare", "flavor": "「请家长务必准时参加」——然后全班都留下了心理阴影"},
+    
+    # -- counter/snitch cards --
+    {"id": "kc_counter_003", "name": "突击测验", "faction": "key_class", "type": "counter", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手抽牌时触发：使其弃1张牌", "rarity": "uncommon", "flavor": "「明天突击测验」——比恐怖片还吓人"},
+    {"id": "kc_counter_004", "name": "翻书检查", "faction": "key_class", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手打出单位时触发：沉默该单位并抽1张牌", "rarity": "rare", "flavor": "「把书拿出来，我看看你笔记记了多少」"},
+    
+    # -- buff/event cards --
+    {"id": "kc_buff_008", "name": "全科辅导", "faction": "key_class", "type": "buff", "subtype": None, "cost": 4, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+1/+2/+2和「先攻」", "rarity": "uncommon", "flavor": "语文数学英语物理化学生物——各科老师轮流补课"},
+    {"id": "kc_buff_009", "name": "周末补习班", "faction": "key_class", "type": "buff", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位永久+2/+0/+1", "rarity": "common", "flavor": "周末？不存在的"},
+    
+    # -- generic unit cards --
+    {"id": "kc_unit_030", "name": "值日班长", "faction": "key_class", "type": "unit", "subtype": "discipline", "cost": 3, "attack": 3, "defense": 2, "hp": 3, "ability": "出场时：将一个1/2/2「值日牌」衍生物置入支持线", "rarity": "common", "flavor": "「今天的值日生是哪一组？」"},
+    {"id": "kc_unit_031", "name": "考试倒计时牌", "faction": "key_class", "type": "unit", "subtype": "broadcast", "cost": 2, "attack": 1, "defense": 1, "hp": 1, "ability": "主动：减少敌方所有单位1点生命（冷却 1）", "rarity": "uncommon", "flavor": "「距离高考还有XX天」——每天都在减少"},
+    {"id": "kc_unit_032", "name": "重点班插班生", "faction": "key_class", "type": "unit", "subtype": "student", "cost": 6, "attack": 6, "defense": 3, "hp": 6, "ability": "「穿透」。出场时：若手牌≤3张，对所有敌方单位造成2点伤害", "rarity": "epic", "flavor": "从普通班杀上来的狠人"},
+    
+    # ═══════════════════════════════════════════
+    # normal_class (普通班) — 35 new cards
+    # Identity: swarm, tokens, deathrattle, synergy
+    # ═══════════════════════════════════════════
+    
+    {"id": "nc_student_006", "name": "后排聊天专业户", "faction": "normal_class", "type": "unit", "subtype": "student", "cost": 2, "attack": 1, "defense": 1, "hp": 4, "ability": "回合结束时：召唤一个1/1/1「快闪兵」", "rarity": "common", "flavor": "最后一排永远是信息交流中心"},
+    {"id": "nc_student_007", "name": "转校生", "faction": "normal_class", "type": "unit", "subtype": "student", "cost": 1, "attack": 2, "defense": 1, "hp": 2, "ability": "入场时：本回合获得+1攻击", "rarity": "common", "flavor": "「大家好，我叫……（声音越来越小）」"},
+    {"id": "nc_student_008", "name": "班长大人", "faction": "normal_class", "type": "unit", "subtype": "student", "cost": 5, "attack": 4, "defense": 3, "hp": 4, "ability": "主动：使所有普通班友方单位获得+1/+0/+1（冷却 2）", "rarity": "epic", "flavor": "「别吵了！老师来了！」"},
+    
+    # -- sports --
+    {"id": "nc_sports_004", "name": "体育课代表", "faction": "normal_class", "type": "unit", "subtype": "sports", "cost": 3, "attack": 3, "defense": 2, "hp": 3, "ability": "「冲锋」。亡语：召唤一个2/1/2「体育委员」", "rarity": "uncommon", "flavor": "「体育老师生病了」——体育课代表表示不服"},
+    {"id": "nc_sports_005", "name": "拔河队员", "faction": "normal_class", "type": "unit", "subtype": "sports", "cost": 2, "attack": 2, "defense": 2, "hp": 3, "ability": "相邻友方单位+1攻击", "rarity": "common", "flavor": "一二三，拉！"},
+    {"id": "nc_sports_006", "name": "校足球队前锋", "faction": "normal_class", "type": "unit", "subtype": "sports", "cost": 4, "attack": 5, "defense": 1, "hp": 4, "ability": "主动：对敌方HQ造成2点伤害（冷却 2）", "rarity": "rare", "flavor": "球进了！——然后发现踢的是教室玻璃"},
+    
+    # -- discipline --
+    {"id": "nc_discipline_003", "name": "课堂纪律委员", "faction": "normal_class", "type": "unit", "subtype": "discipline", "cost": 1, "attack": 1, "defense": 1, "hp": 2, "ability": "亡语：抽1张牌", "rarity": "common", "flavor": "「谁再说话就记名字了！」——然后自己也被记了"},
+    {"id": "nc_discipline_004", "name": "考勤记录员", "faction": "normal_class", "type": "unit", "subtype": "discipline", "cost": 2, "attack": 2, "defense": 1, "hp": 3, "ability": "出场时：你的下一个单位费用-1", "rarity": "uncommon", "flavor": "「迟到一次扣操行分0.5」"},
+    
+    # -- scholar --
+    {"id": "nc_scholar_003", "name": "复读机学霸", "faction": "normal_class", "type": "unit", "subtype": "scholar", "cost": 4, "attack": 4, "defense": 2, "hp": 4, "ability": "你每有一个其他普通班单位，此牌费用-1（最低1）", "rarity": "rare", "flavor": "「这道题老师讲过多少遍了？」"},
+    
+    # -- broadcast --
+    {"id": "nc_broadcast_002", "name": "校园广播员", "faction": "normal_class", "type": "unit", "subtype": "broadcast", "cost": 3, "attack": 3, "defense": 1, "hp": 3, "ability": "主动：所有友方普通班单位获得+1/+0/+0（冷却 2）", "rarity": "rare", "flavor": "「通知：放学后全体留下大扫除」"},
+    
+    # -- command --
+    {"id": "nc_cmd_004", "name": "课间十分钟", "faction": "normal_class", "type": "command", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "本回合中，你的下一个单位费用-1", "rarity": "common", "flavor": "从教室到小卖部的往返跑"},
+    {"id": "nc_command_009", "name": "班费集资", "faction": "normal_class", "type": "command", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "召唤3个1/1/1「课间快闪兵」", "rarity": "uncommon", "flavor": "「每人交五块钱，我们买足球」"},
+    {"id": "nc_command_010", "name": "全校大扫除", "faction": "normal_class", "type": "command", "subtype": None, "cost": 5, "attack": 0, "defense": 0, "hp": 0, "ability": "使所有友方单位永久获得+1/+0/+1，召唤1个1/1/1「快闪兵」", "rarity": "epic", "flavor": "「你，擦窗户。你，拖地。你——别跑！」"},
+    
+    # -- counter --
+    {"id": "nc_counter_004", "name": "课堂抽问", "faction": "normal_class", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手攻击时触发：使正在攻击的单位返回手牌", "rarity": "rare", "flavor": "「小明，你来回答这道题」——全班瞬间低头"},
+    
+    # -- buff --
+    {"id": "nc_buff_006", "name": "课代表辅导", "faction": "normal_class", "type": "buff", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得「亡语：召唤两个1/1/1「快闪兵」」", "rarity": "uncommon", "flavor": "「这题我教你，很简单的……」"},
+    {"id": "nc_buff_007", "name": "班级公约", "faction": "normal_class", "type": "buff", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方普通班单位永久+1/+1/+1", "rarity": "common", "flavor": "「第一条：上课不许睡觉」"},
+    
+    # -- generic unit --
+    {"id": "nc_unit_032", "name": "课间小卖部跑腿", "faction": "normal_class", "type": "unit", "subtype": "sports", "cost": 1, "attack": 2, "defense": 1, "hp": 1, "ability": "出场时：抽1张牌", "rarity": "common", "flavor": "「帮我带瓶水！」——然后课间十分钟变成了三分钟"},
+    {"id": "nc_unit_033", "name": "后排递纸条高手", "faction": "normal_class", "type": "unit", "subtype": "student", "cost": 3, "attack": 2, "defense": 1, "hp": 2, "ability": "主动：将一个1/1/1「快闪兵」置入战场（冷却 1）", "rarity": "uncommon", "flavor": "从最后一排传到第一排只用了三秒"},
+    {"id": "nc_unit_034", "name": "班主任", "faction": "normal_class", "type": "unit", "subtype": "discipline", "cost": 7, "attack": 6, "defense": 4, "hp": 7, "ability": "「威慑」。你的所有普通班单位费用-1", "rarity": "legendary", "flavor": "后门窗户上那张脸——每个学生的噩梦"},
+    {"id": "nc_unit_035", "name": "升旗手", "faction": "normal_class", "type": "unit", "subtype": "broadcast", "cost": 4, "attack": 4, "defense": 2, "hp": 5, "ability": "「免疫」（从出场开始持续1回合）", "rarity": "uncommon", "flavor": "每周一，国旗下的讲话"},
+    
+    # ═══════════════════════════════════════════
+    # competition_class (竞赛班) — 33 new cards
+    # Identity: elite units, keywords, quality over quantity
+    # ═══════════════════════════════════════════
+    
+    {"id": "cc_student_005", "name": "信息竞赛选手", "faction": "competition_class", "type": "unit", "subtype": "student", "cost": 2, "attack": 3, "defense": 1, "hp": 2, "ability": "「先攻」", "rarity": "common", "flavor": "他写的代码比作文还长"},
+    {"id": "cc_student_006", "name": "物理竞赛大神", "faction": "competition_class", "type": "unit", "subtype": "student", "cost": 4, "attack": 5, "defense": 1, "hp": 4, "ability": "「穿透」", "rarity": "uncommon", "flavor": "「力的作用是相互的，考试成绩也是」"},
+    {"id": "cc_student_007", "name": "数学竞赛国一", "faction": "competition_class", "type": "unit", "subtype": "student", "cost": 6, "attack": 6, "defense": 3, "hp": 6, "ability": "「免疫」（被攻击时）。主动：消灭一个受伤的敌方单位（冷却 1）", "rarity": "legendary", "flavor": "国家一等奖——不是每个省都有的"},
+    
+    {"id": "cc_sports_002", "name": "体竞双修", "faction": "competition_class", "type": "unit", "subtype": "sports", "cost": 3, "attack": 4, "defense": 1, "hp": 3, "ability": "「冲锋」。若你场上只有此单位，获得+1/+0/+0", "rarity": "uncommon", "flavor": "脑子好使，体能更好"},
+    {"id": "cc_sports_003", "name": "特长生保送", "faction": "competition_class", "type": "unit", "subtype": "sports", "cost": 5, "attack": 5, "defense": 2, "hp": 5, "ability": "主动：本回合获得「穿透」和「先攻」（冷却 2）", "rarity": "rare", "flavor": "二级运动员，一本线65%"},
+    
+    {"id": "cc_discipline_003", "name": "竞赛班纪律", "faction": "competition_class", "type": "unit", "subtype": "discipline", "cost": 3, "attack": 3, "defense": 2, "hp": 3, "ability": "「威慑」", "rarity": "common", "flavor": "迟到一次——取消竞赛资格"},
+    {"id": "cc_discipline_004", "name": "实验室管理员", "faction": "competition_class", "type": "unit", "subtype": "discipline", "cost": 4, "attack": 4, "defense": 3, "hp": 3, "ability": "出场时：获得一个敌方单位的控制权（至回合结束）", "rarity": "epic", "flavor": "「仪器用完记得归位」"},
+    
+    {"id": "cc_scholar_004", "name": "化竞选手", "faction": "competition_class", "type": "unit", "subtype": "scholar", "cost": 1, "attack": 2, "defense": 1, "hp": 2, "ability": "亡语：对一个敌方单位造成2点伤害", "rarity": "common", "flavor": "试管里的颜色比彩虹还丰富"},
+    {"id": "cc_scholar_005", "name": "生物竞赛冠军", "faction": "competition_class", "type": "unit", "subtype": "scholar", "cost": 3, "attack": 2, "defense": 2, "hp": 5, "ability": "回合结束时：恢复所有友方单位1点生命", "rarity": "uncommon", "flavor": "细胞分裂的速度都没有他翻书快"},
+    
+    {"id": "cc_broadcast_002", "name": "竞赛通知播报", "faction": "competition_class", "type": "unit", "subtype": "broadcast", "cost": 2, "attack": 1, "defense": 1, "hp": 3, "ability": "出场时：抽1张牌。如果是竞赛班单位，费用-1", "rarity": "rare", "flavor": "「第39届物理竞赛报名开始了」"},
+    
+    {"id": "cc_cmd_004", "name": "集训队选拔", "faction": "competition_class", "type": "command", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "检视牌库顶3张牌，选择1张入手，其余放回", "rarity": "uncommon", "flavor": "百里挑一，残酷而真实"},
+    {"id": "cc_command_008", "name": "省队集训", "faction": "competition_class", "type": "command", "subtype": None, "cost": 5, "attack": 0, "defense": 0, "hp": 0, "ability": "抽3张牌。本回合你打出的下一张竞赛班单位费用-2", "rarity": "epic", "flavor": "封闭式训练，与世隔绝"},
+    
+    {"id": "cc_counter_003", "name": "竞赛失利复盘", "faction": "competition_class", "type": "counter", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "当你的单位被摧毁时触发：抽1张牌", "rarity": "common", "flavor": "「没关系，明年再来」"},
+    {"id": "cc_counter_004", "name": "压轴题", "faction": "competition_class", "type": "counter", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手打出费用≥5的单位时触发：将其返回手牌", "rarity": "rare", "flavor": "最后一道大题——99%的人做不出来"},
+    
+    {"id": "cc_buff_007", "name": "赛前冲刺", "faction": "competition_class", "type": "buff", "subtype": None, "cost": 4, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+2/+0/+2和「冲锋」", "rarity": "uncommon", "flavor": "临阵磨枪，不快也光"},
+    {"id": "cc_buff_008", "name": "金牌教练指导", "faction": "competition_class", "type": "buff", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个竞赛班单位永久获得「先攻」和「穿透」", "rarity": "rare", "flavor": "「这道题用母函数做，很简单的」"},
+    
+    {"id": "cc_unit_029", "name": "竞赛班插班考第一", "faction": "competition_class", "type": "unit", "subtype": "scholar", "cost": 7, "attack": 7, "defense": 3, "hp": 7, "ability": "「穿透」。场上每有其他竞赛班单位，此牌费用-1", "rarity": "legendary", "flavor": "他来的那天，所有人都知道第一名要换了"},
+    {"id": "cc_unit_030", "name": "实验器材守护者", "faction": "competition_class", "type": "unit", "subtype": "discipline", "cost": 2, "attack": 1, "defense": 2, "hp": 3, "ability": "回合结束时：获得+1/+0/+0", "rarity": "common", "flavor": "显微镜比他的命还贵"},
+    {"id": "cc_unit_031", "name": "天文学竞赛选手", "faction": "competition_class", "type": "unit", "subtype": "scholar", "cost": 4, "attack": 3, "defense": 1, "hp": 5, "ability": "「空军」。主动：对敌方所有空中单位造成3点伤害（冷却 2）", "rarity": "rare", "flavor": "望远镜里看到的不是星星，是未来的录取通知书"},
+    
+    # ═══════════════════════════════════════════
+    # intl_class (国际班) — 33 new cards
+    # Identity: resource advantage, flexibility, versatile
+    # ═══════════════════════════════════════════
+    
+    {"id": "ic_student_005", "name": "交换生", "faction": "intl_class", "type": "unit", "subtype": "student", "cost": 2, "attack": 2, "defense": 2, "hp": 3, "ability": "出场时：获得1点临时费用（本回合可用）", "rarity": "common", "flavor": "「我们学校在美国有个姐妹校」"},
+    {"id": "ic_student_006", "name": "国际部学生会", "faction": "intl_class", "type": "unit", "subtype": "student", "cost": 4, "attack": 3, "defense": 3, "hp": 4, "ability": "主动：抽1张牌。若手牌≥5张，再抽1张（冷却 2）", "rarity": "epic", "flavor": "学生会的活动经费比班费多一百倍"},
+    {"id": "ic_student_007", "name": "托福满分王", "faction": "intl_class", "type": "unit", "subtype": "student", "cost": 3, "attack": 3, "defense": 2, "hp": 3, "ability": "你每有一张手牌，此牌获得+1攻击", "rarity": "rare", "flavor": "120分——不是总分，是单项"},
+    
+    {"id": "ic_sports_003", "name": "高尔夫球手", "faction": "intl_class", "type": "unit", "subtype": "sports", "cost": 1, "attack": 1, "defense": 1, "hp": 2, "ability": "主动：对敌方单位造成1点伤害（冷却 1）", "rarity": "uncommon", "flavor": "一杆进洞——然后发现打的是校长室玻璃"},
+    {"id": "ic_sports_004", "name": "马术队员", "faction": "intl_class", "type": "unit", "subtype": "sports", "cost": 5, "attack": 5, "defense": 3, "hp": 4, "ability": "「冲锋」。你每有一张手牌，此牌获得+1/+0/+0", "rarity": "rare", "flavor": "骑马比走路还贵的运动"},
+    
+    {"id": "ic_discipline_002", "name": "模联主席团", "faction": "intl_class", "type": "unit", "subtype": "discipline", "cost": 4, "attack": 4, "defense": 2, "hp": 5, "ability": "回合开始时：若手牌≥4张，对敌方HQ造成1点伤害", "rarity": "uncommon", "flavor": "「尊敬的各位代表，现在开始投票」"},
+    {"id": "ic_discipline_003", "name": "国际学校风纪", "faction": "intl_class", "type": "unit", "subtype": "discipline", "cost": 3, "attack": 3, "defense": 2, "hp": 3, "ability": "入场时：回复2点HQ生命", "rarity": "common", "flavor": "「Dress code! No slippers!」"},
+    
+    {"id": "ic_scholar_004", "name": "AP全五分", "faction": "intl_class", "type": "unit", "subtype": "scholar", "cost": 5, "attack": 5, "defense": 2, "hp": 5, "ability": "主动：回复3点HQ生命，抽1张牌（冷却 3）", "rarity": "legendary", "flavor": "八门AP全部5分——这就是钞能力？不，是肝能力"},
+    {"id": "ic_scholar_005", "name": "SAT满分", "faction": "intl_class", "type": "unit", "subtype": "scholar", "cost": 7, "attack": 7, "defense": 3, "hp": 7, "ability": "「先攻」。你每有一张手牌，此牌费用-1", "rarity": "legendary", "flavor": "1600分——完美的答卷"},
+    
+    {"id": "ic_broadcast_002", "name": "校园电视台", "faction": "intl_class", "type": "unit", "subtype": "broadcast", "cost": 3, "attack": 2, "defense": 1, "hp": 4, "ability": "回合结束时：抽1张牌。若手牌≥4张，再抽1张", "rarity": "uncommon", "flavor": "「欢迎收看校园新闻联播」"},
+    
+    {"id": "ic_cmd_004", "name": "海外研学", "faction": "intl_class", "type": "command", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "抽2张牌。若手牌≥5张，额外获得1点临时费用", "rarity": "uncommon", "flavor": "「去剑桥两周，费用自理」"},
+    {"id": "ic_command_011", "name": "留学申请文书", "faction": "intl_class", "type": "command", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "检视你的牌库并选择一张牌入手，洗牌", "rarity": "epic", "flavor": "「Describe a challenge you have overcome」——贫穷"},
+    
+    {"id": "ic_counter_005", "name": "DELE考试", "faction": "intl_class", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手打出单位时触发：若手牌≥4张，沉默该单位", "rarity": "uncommon", "flavor": "西班牙语等级考试——比英语难十倍"},
+    {"id": "ic_counter_006", "name": "签证面试", "faction": "intl_class", "type": "counter", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手使用能力或法术时触发：使其无效并抽1张牌", "rarity": "rare", "flavor": "「Why do you want to go to the US?」——「To study」"},
+    
+    {"id": "ic_buff_006", "name": "IB课程辅导", "faction": "intl_class", "type": "buff", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+1/+1/+2", "rarity": "common", "flavor": "International Baccalaureate——国际化的卷"},
+    {"id": "ic_buff_007", "name": "推荐信", "faction": "intl_class", "type": "buff", "subtype": None, "cost": 4, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+3/+0/+3和「先攻」", "rarity": "rare", "flavor": "「该生表现优异，特此推荐」——校长签名"},
+    
+    {"id": "ic_unit_025", "name": "国际部新生", "faction": "intl_class", "type": "unit", "subtype": "student", "cost": 1, "attack": 1, "defense": 1, "hp": 2, "ability": "出场时：回复1点HQ生命", "rarity": "common", "flavor": "第一天来学校就穿了一身Armani"},
+    {"id": "ic_unit_026", "name": "外教", "faction": "intl_class", "type": "unit", "subtype": "scholar", "cost": 5, "attack": 4, "defense": 2, "hp": 6, "ability": "回合结束时：给一个随机友方单位+1/+0/+1", "rarity": "uncommon", "flavor": "「Good morning class, today we will discuss...」"},
+    {"id": "ic_unit_027", "name": "多语种翻译", "faction": "intl_class", "type": "unit", "subtype": "broadcast", "cost": 2, "attack": 2, "defense": 1, "hp": 2, "ability": "主动：交换一个友方单位和敌方单位的位置（冷却 2）", "rarity": "rare", "flavor": "中文英文法文德文西班牙文——无缝切换"},
+    
+    # ═══════════════════════════════════════════
+    # arts_class (艺体班) — 33 new cards
+    # Identity: command synergy, ranged, control
+    # ═══════════════════════════════════════════
+    
+    {"id": "ac_student_005", "name": "美术生", "faction": "arts_class", "type": "unit", "subtype": "student", "cost": 2, "attack": 2, "defense": 2, "hp": 2, "ability": "「远程」。回合结束时：对手弃1张牌", "rarity": "common", "flavor": "画的速写比数学作业还厚"},
+    {"id": "ac_student_006", "name": "舞蹈生", "faction": "arts_class", "type": "unit", "subtype": "student", "cost": 3, "attack": 4, "defense": 1, "hp": 3, "ability": "「闪避」。主动：本回合获得「免疫」（冷却 2）", "rarity": "rare", "flavor": "下腰的时候敌人根本打不到"},
+    {"id": "ac_student_007", "name": "播音主持", "faction": "arts_class", "type": "unit", "subtype": "student", "cost": 1, "attack": 1, "defense": 1, "hp": 2, "ability": "出场时：本回合使用的下一张命令卡费用-1", "rarity": "uncommon", "flavor": "「各位观众朋友们大家晚上好」"},
+    
+    {"id": "ac_sports_004", "name": "啦啦队长", "faction": "arts_class", "type": "unit", "subtype": "sports", "cost": 3, "attack": 2, "defense": 2, "hp": 4, "ability": "回合开始时：所有友方单位+1攻击（本回合）", "rarity": "common", "flavor": "加油！加油！——嗓子都喊哑了"},
+    {"id": "ac_sports_005", "name": "艺术体操队员", "faction": "arts_class", "type": "unit", "subtype": "sports", "cost": 2, "attack": 3, "defense": 1, "hp": 2, "ability": "「闪避」", "rarity": "uncommon", "flavor": "彩带飞舞的瞬间，像极了青春"},
+    {"id": "ac_sports_006", "name": "田径队短跑王", "faction": "arts_class", "type": "unit", "subtype": "sports", "cost": 5, "attack": 6, "defense": 2, "hp": 4, "ability": "「冲锋」。主动：本回合获得+2/+0/+0（冷却 1）", "rarity": "rare", "flavor": "100米9秒8——校运会记录保持者"},
+    
+    {"id": "ac_discipline_003", "name": "形体课老师", "faction": "arts_class", "type": "unit", "subtype": "discipline", "cost": 4, "attack": 3, "defense": 2, "hp": 5, "ability": "「威慑」。回合结束时：给一个友方单位+1/+0/+0", "rarity": "uncommon", "flavor": "「挺胸！收腹！——再来一组」"},
+    
+    {"id": "ac_scholar_003", "name": "艺术史研究", "faction": "arts_class", "type": "unit", "subtype": "scholar", "cost": 3, "attack": 2, "defense": 2, "hp": 4, "ability": "出场时：抽1张命令卡", "rarity": "common", "flavor": "从文艺复兴到当代艺术——一本通"},
+    {"id": "ac_scholar_004", "name": "乐理满分", "faction": "arts_class", "type": "unit", "subtype": "scholar", "cost": 5, "attack": 4, "defense": 2, "hp": 6, "ability": "你的命令卡费用-1。主动：抽1张命令卡（冷却 2）", "rarity": "legendary", "flavor": "和声、曲式、配器——没有他不会的"},
+    
+    {"id": "ac_broadcast_002", "name": "校园乐队主唱", "faction": "arts_class", "type": "unit", "subtype": "broadcast", "cost": 4, "attack": 4, "defense": 1, "hp": 4, "ability": "主动：对一个敌方单位造成2点伤害，回复你的HQ2点生命（冷却 2）", "rarity": "rare", "flavor": "「明天会更好」——然后被宿管阿姨叫停了"},
+    
+    {"id": "ac_cmd_004", "name": "艺术节报名", "faction": "arts_class", "type": "command", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "抽1张命令卡，其费用-1", "rarity": "common", "flavor": "「艺术节报名截止到本周五」"},
+    {"id": "ac_command_010", "name": "文化节汇演", "faction": "arts_class", "type": "command", "subtype": None, "cost": 4, "attack": 0, "defense": 0, "hp": 0, "ability": "对所有敌方单位造成2点伤害。每有一个友方艺体班单位，伤害+1", "rarity": "epic", "flavor": "唱歌跳舞话剧相声——精彩纷呈"},
+    
+    {"id": "ac_counter_005", "name": "走音警告", "faction": "arts_class", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手打出单位时触发：使其获得-2攻击（永久）", "rarity": "uncommon", "flavor": "「你跑调了」——来自音乐老师的暴击"},
+    {"id": "ac_counter_006", "name": "颜料泼墨", "faction": "arts_class", "type": "counter", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手攻击时触发：使攻击单位返回手牌，费用+1", "rarity": "rare", "flavor": "一幅泼墨山水画——和对手的战术一起毁了"},
+    
+    {"id": "ac_buff_005", "name": "演出服租赁", "faction": "arts_class", "type": "buff", "subtype": None, "cost": 1, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+1/+0/+1", "rarity": "common", "flavor": "租一次演出服比买还贵"},
+    {"id": "ac_buff_006", "name": "专业调音", "faction": "arts_class", "type": "buff", "subtype": None, "cost": 3, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得「远程」和+1/+0/+1", "rarity": "uncommon", "flavor": "调音师的耳朵比狗还灵"},
+    
+    {"id": "ac_unit_026", "name": "话剧组主演", "faction": "arts_class", "type": "unit", "subtype": "broadcast", "cost": 6, "attack": 5, "defense": 3, "hp": 5, "ability": "「闪避」。主动：操控一个费用≤4的敌方单位（冷却 3）", "rarity": "legendary", "flavor": "「人生如戏，全凭演技」——然后他真的演上了"},
+    {"id": "ac_unit_027", "name": "画室模特", "faction": "arts_class", "type": "unit", "subtype": "student", "cost": 1, "attack": 1, "defense": 1, "hp": 3, "ability": "「免疫」（出场回合）", "rarity": "common", "flavor": "坐着一动不动三个小时——比上课还累"},
+    {"id": "ac_unit_028", "name": "合唱团指挥", "faction": "arts_class", "type": "unit", "subtype": "broadcast", "cost": 5, "attack": 3, "defense": 3, "hp": 5, "ability": "你的命令卡费用-1。出场时：抽1张命令卡", "rarity": "epic", "flavor": "双手一挥，百人齐唱——那气势"},
+    
+    # ═══════════════════════════════════════════
+    # neutral (中立) — 30 new cards
+    # Identity: generic support, utility, filling gaps
+    # ═══════════════════════════════════════════
+    
+    {"id": "ne_student_003", "name": "转学来的新生", "faction": "neutral", "type": "unit", "subtype": "student", "cost": 2, "attack": 2, "defense": 1, "hp": 3, "ability": "出场时：获得你主势力的阵营被动一个回合", "rarity": "uncommon", "flavor": "「我以前的学校……比这里好多了」"},
+    {"id": "ne_student_004", "name": "年级第一", "faction": "neutral", "type": "unit", "subtype": "student", "cost": 8, "attack": 8, "defense": 4, "hp": 8, "ability": "「免疫」（从出场开始持续1回合）。无法被沉默", "rarity": "legendary", "flavor": "全年级第一的名字永远在公告栏最上面"},
+    
+    {"id": "ne_sports_001", "name": "运动会志愿者", "faction": "neutral", "type": "unit", "subtype": "sports", "cost": 1, "attack": 1, "defense": 1, "hp": 2, "ability": "出场时：回复1点HQ生命", "rarity": "common", "flavor": "「同学，检录处在那边」"},
+    {"id": "ne_sports_002", "name": "校纪录保持者", "faction": "neutral", "type": "unit", "subtype": "sports", "cost": 5, "attack": 5, "defense": 3, "hp": 5, "ability": "主动：本回合获得「冲锋」和+2/+0/+0（冷却 3）", "rarity": "epic", "flavor": "纪录是用来被打破的——但那个人不是你"},
+    
+    {"id": "ne_scholar_003", "name": "图书管理员", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 3, "attack": 2, "defense": 2, "hp": 4, "ability": "入场时：从牌库抽一张牌，如果是单位牌则费用-1", "rarity": "uncommon", "flavor": "「嘘——图书馆不许说话」"},
+    {"id": "ne_scholar_004", "name": "借书超时不还者", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 2, "attack": 3, "defense": 1, "hp": 2, "ability": "「先攻」", "rarity": "common", "flavor": "那本书已经借了三年了"},
+    
+    {"id": "ne_discipline_001", "name": "门卫大爷", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 2, "attack": 1, "defense": 3, "hp": 3, "ability": "「威慑」。敌方单位进入战场时有50%概率被沉默（本回合）", "rarity": "rare", "flavor": "「哪个班的？——学生证呢？」"},
+    {"id": "ne_discipline_002", "name": "宿管阿姨", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 4, "attack": 3, "defense": 3, "hp": 4, "ability": "回合开始时：沉默一个攻击力最高的敌方单位至回合结束", "rarity": "rare", "flavor": "「几点了还不睡觉！」——十点整"},
+    
+    {"id": "ne_broadcast_003", "name": "团委通知栏", "faction": "neutral", "type": "unit", "subtype": "broadcast", "cost": 3, "attack": 2, "defense": 2, "hp": 4, "ability": "回合结束时：抽1张牌", "rarity": "common", "flavor": "「通知：明天下午第二节课后开班会」"},
+    {"id": "ne_broadcast_004", "name": "优秀学生展板", "faction": "neutral", "type": "unit", "subtype": "broadcast", "cost": 4, "attack": 3, "defense": 2, "hp": 5, "ability": "你每打出一个单位，抽1张牌（每回合最多1次）", "rarity": "rare", "flavor": "照片贴在公告栏里一年了还没换"},
+    
+    {"id": "ne_cmd_003", "name": "校运动会", "faction": "neutral", "type": "command", "subtype": None, "cost": 4, "attack": 0, "defense": 0, "hp": 0, "ability": "使所有友方单位获得+1/+0/+0和「冲锋」本回合", "rarity": "uncommon", "flavor": "一年一度的集体狂欢"},
+    {"id": "ne_command_007", "name": "开学典礼", "faction": "neutral", "type": "command", "subtype": None, "cost": 6, "attack": 0, "defense": 0, "hp": 0, "ability": "召唤4个1/1/1「新生」衍生物", "rarity": "rare", "flavor": "「同学们，新的学期开始了」——然后讲了两小时"},
+    
+    {"id": "ne_counter_004", "name": "校园广播通知", "faction": "neutral", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手抽牌时触发：你也抽1张牌", "rarity": "uncommon", "flavor": "「通知：请以下同学到教务处……」"},
+    {"id": "ne_counter_005", "name": "教导处传唤", "faction": "neutral", "type": "counter", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "当对手用能力或打出单位时触发：冻结该单位一回合", "rarity": "common", "flavor": "「你，跟我去一趟教导处」"},
+    
+    {"id": "ne_buff_004", "name": "国旗下的讲话", "faction": "neutral", "type": "buff", "subtype": None, "cost": 5, "attack": 0, "defense": 0, "hp": 0, "ability": "使所有友方单位永久获得+1/+1/+1", "rarity": "legendary", "flavor": "「今天我讲话的题目是：奋斗的青春最美丽」"},
+    {"id": "ne_buff_005", "name": "社会实践", "faction": "neutral", "type": "buff", "subtype": None, "cost": 2, "attack": 0, "defense": 0, "hp": 0, "ability": "使一个友方单位获得+1/+1/+1", "rarity": "common", "flavor": "去敬老院扫地——然后写两千字感想"},
+    
+    {"id": "ne_unit_025", "name": "值周生", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 1, "attack": 2, "defense": 1, "hp": 1, "ability": "", "rarity": "common", "flavor": "红袖标一戴，谁都不爱"},
+    {"id": "ne_unit_026", "name": "学生会主席", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 6, "attack": 5, "defense": 4, "hp": 5, "ability": "主动：使一个友方单位获得+2/+0/+2（冷却 2）", "rarity": "legendary", "flavor": "校长面前的红人，学生眼中的叛徒"},
+    {"id": "ne_unit_027", "name": "食堂阿姨", "faction": "neutral", "type": "unit", "subtype": "sports", "cost": 3, "attack": 4, "defense": 2, "hp": 3, "ability": "「穿透」——她的手抖一下，你的肉就没了", "rarity": "uncommon", "flavor": "「同学，要什么菜？」——然后手抖了三下"},
+    {"id": "ne_unit_028", "name": "医务室校医", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 2, "attack": 1, "defense": 1, "hp": 3, "ability": "主动：回复一个友方单位2点生命（冷却 1）", "rarity": "common", "flavor": "「多喝热水」——校医的万能处方"},
+    {"id": "ne_unit_029", "name": "心理辅导老师", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 3, "attack": 1, "defense": 2, "hp": 4, "ability": "回合结束时：回复所有受伤友方单位1点生命", "rarity": "uncommon", "flavor": "「压力大是正常的，要学会调节」"},
+    {"id": "ne_unit_030", "name": "保安队长", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 5, "attack": 4, "defense": 4, "hp": 5, "ability": "「威慑」。敌方单位攻击时，-1攻击（本回合）", "rarity": "rare", "flavor": "「外卖不能进校门」——铁面无私"},
+    
+    # ═══════════════════════════════════════════
+    # More active-ability key_class cards (bonus)
+    # ═══════════════════════════════════════════
+    {"id": "kc_active_001", "name": "重点班班主任", "faction": "key_class", "type": "unit", "subtype": "discipline", "cost": 6, "attack": 4, "defense": 3, "hp": 6, "ability": "主动：使一个友方单位本回合可以攻击两次（冷却 3）", "rarity": "legendary", "flavor": "「你们是我带过最差的一届」——然后全班985"},
+    {"id": "kc_active_002", "name": "高考倒计时牌", "faction": "key_class", "type": "unit", "subtype": "broadcast", "cost": 4, "attack": 2, "defense": 2, "hp": 3, "ability": "主动：减少所有敌方单位1点防御（冷却 1）", "rarity": "rare", "flavor": "每一天都在减少，焦虑每天都在增加"},
+    
+    # ═══════════════════════════════════════════
+    # More neutral cards (fill to ~30)
+    # ═══════════════════════════════════════════
+    {"id": "ne_unit_031", "name": "计算机课代表", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 4, "attack": 4, "defense": 1, "hp": 5, "ability": "主动：沉默一个敌方单位（冷却 2）", "rarity": "rare", "flavor": "「重启一下试试」"},
+    {"id": "ne_unit_032", "name": "实验楼保洁", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 2, "attack": 2, "defense": 2, "hp": 2, "ability": "亡语：将一个1/1/1「实验器材」衍生物置入支持线", "rarity": "common", "flavor": "试管碎了就要写检讨"},
+    {"id": "ne_unit_033", "name": "家长委员会代表", "faction": "neutral", "type": "unit", "subtype": "discipline", "cost": 5, "attack": 4, "defense": 3, "hp": 5, "ability": "出场时：抽2张牌", "rarity": "epic", "flavor": "「我建议……」「我反对……」「我提议……」"},
+    {"id": "ne_unit_034", "name": "校友捐赠者", "faction": "neutral", "type": "unit", "subtype": "scholar", "cost": 7, "attack": 6, "defense": 4, "hp": 6, "ability": "主动：对所有敌方单位造成4点伤害（冷却 3）", "rarity": "legendary", "flavor": "「我捐一栋楼」——他真捐了"},
 ]
 
-def pick_cost(rarity):
-    weights = dict(COST_WEIGHTS)
-    if rarity == 'common':
-        weights = {c: w for c, w in weights.items() if c <= 6}
-    elif rarity == 'legendary':
-        weights = {c: w * 2 if c >= 5 else w // 2 for c, w in weights.items()}
-    costs = list(weights.keys())
-    w = [max(1, weights.get(c, 1)) for c in costs]
-    return random.choices(costs, weights=w, k=1)[0]
+def main():
+    with open(FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-def generate_stats(cost, rarity, card_type):
-    if card_type != 'unit':
-        return 0, 0, 0
-    rarity_mult = {'common': 1.0, 'uncommon': 1.15, 'rare': 1.35, 'legendary': 1.6}
-    mult = rarity_mult[rarity]
-    base = cost * 1.8 * mult
-    base += random.uniform(-0.5, 0.5)
-    total = max(1, round(base))
-    if cost == 0:
-        total = max(1, round(random.uniform(1.5, 2.5) * mult))
-    power = max(0, round(total * random.uniform(0.25, 0.45)))
-    grit = max(0, round(total * random.uniform(0.2, 0.4)))
-    spirit = max(1, total - power - grit)
-    return power, grit, spirit
+    existing_ids = {c["id"] for c in data["cards"]}
+    added = 0
+    skipped = 0
 
-def make_ability(card_type, faction, cost, rarity):
-    if card_type == 'unit':
-        patterns = {
-            'key_class': [
-                f"入场时：抽{max(1,cost//2)}张牌",
-                f"入场时：对一个敌方单位造成{max(1,cost*2//3)}点伤害",
-                f"你的回合结束时：所有己方单位+{max(1,cost//3)}攻击",
-                f"亡语：抽{max(1,cost//2)}张牌",
-                f"入场时：若手牌≤{cost}张，获得+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"入场时：对方所有单位-{max(1,cost//3)}攻击（本回合）",
-            ],
-            'arts_class': [
-                f"「远程」。入场时：对随机敌方造成{max(1,cost//2)}点伤害",
-                f"当你打出命令卡时：对敌方造成{max(1,cost*2//5)}点伤害",
-                f"「远程」。回合结束时：抽{max(1,cost//4)}张牌",
-                f"「闪避」。亡语：抽{max(1,cost//2)}张命令卡",
-                f"「远程」。入场时：将一个敌方单位移回手牌",
-                f"「远程」。攻击时：对相邻敌方单位造成{max(1,cost//3)}点伤害",
-            ],
-            'normal_class': [
-                f"出场时：召唤1个1/1/1的「分身」",
-                f"亡语：召唤{max(1,cost//2)}个1/1/1「友军」",
-                f"每有一个其他己方单位，+{max(1,cost//4)}攻击",
-                f"出场时：所有己方单位+{max(1,cost//3)}/+{max(1,cost//3)}（本回合）",
-                f"「冲锋」。亡语：抽{max(1,cost//2)}张牌",
-                f"回合结束时：若你有≥3个单位，对所有敌方造成{max(1,cost//3)}点伤害",
-            ],
-            'intl_class': [
-                f"入场时：若手牌≥{cost}张，抽{max(1,cost//3)}张牌",
-                f"入场时：抉择——抽2张牌或对敌方造成{max(1,cost//2)}点伤害",
-                f"回合开始时：抽{max(1,cost//4)}张牌",
-                f"入场时：获得{max(1,cost//2)}点额外费用（本回合）",
-                f"「先攻」。入场时：若手牌≥{cost+1}张，获得+{max(1,cost//2)}攻击",
-                f"回合结束时：若手牌≥4张，治疗自己{max(1,cost//2)}点",
-            ],
-            'competition_class': [
-                f"「穿透」。入场时：对敌方造成{max(1,cost//2)}点伤害",
-                f"「穿透」「先攻」。若场上仅有此单位，+{max(1,cost)}攻击",
-                f"入场时：消灭一个费用≤{max(1,cost-2)}的敌方单位",
-                f"「穿透」。亡语：对所有敌方造成{max(1,cost//2)}点伤害",
-                f"场上竞赛班单位≤{max(1,cost//3)}时，获得+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"「免疫」（1回合）。入场时：对敌方造成{max(1,cost)}点伤害",
-            ],
-            'neutral': [
-                f"入场时：抽1张牌",
-                f"入场时：对所有敌方单位造成{max(1,cost//3)}点伤害",
-                f"回合结束时：治疗一个己方单位{max(1,cost//2)}点",
-                f"亡语：抽{max(1,cost//3)}张牌",
-                f"「空军」。入场时：对随机敌方造成{max(1,cost//2)}点伤害",
-                f"入场时：获得{max(1,cost//3)}/+{max(1,cost//3)}",
-            ],
-        }
-        return random.choice(patterns.get(faction, patterns['neutral']))
-    elif card_type == 'command':
-        cmd_patterns = {
-            'key_class': [
-                f"抽{max(2,cost)}张牌",
-                f"所有己方单位+{max(1,cost//2)}攻击（本回合）",
-                f"对任意目标造成{max(2,cost+1)}点伤害",
-                f"从牌库搜索1张费用≤{max(1,cost-1)}的卡加入手牌",
-            ],
-            'arts_class': [
-                f"对任意目标造成{max(2,cost+1)}点伤害",
-                f"所有「远程」单位+{max(2,cost)}攻击（本回合）",
-                f"将一个敌方单位移回对手手牌",
-                f"本回合下一张命令卡费用-{max(1,cost//2)}",
-            ],
-            'normal_class': [
-                f"召唤{max(1,cost-1)}个1/1/1的「友军」",
-                f"所有费用≤{max(1,cost-1)}的己方单位+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"抽{max(1,cost-1)}张牌",
-                f"选择：抽2张牌或召唤2个1/1/1「友军」",
-            ],
-            'intl_class': [
-                f"抽{max(2,cost//2+1)}张牌。若手牌≥5，再抽1张",
-                f"本回合下一张卡费用-{max(1,cost//2)}",
-                f"抽{max(1,cost-1)}张牌，其中至少1张为命令卡",
-                f"获得{max(1,cost//2)}点额外费用（本回合）",
-            ],
-            'competition_class': [
-                f"从牌库搜索1张竞赛班单位卡加入手牌",
-                f"使一个竞赛班单位+{max(2,cost)}/+{max(2,cost)}（本回合）",
-                f"对任意目标造成{max(3,cost+2)}点伤害",
-                f"所有己方单位获得「穿透」（本回合）",
-            ],
-            'neutral': [
-                f"所有费用≤{max(1,cost//2)}的单位+{max(1,cost//3)}攻击（本回合）",
-                f"消灭所有攻击力≤{max(1,cost-2)}的单位",
-                f"抽{max(1,cost//2)}张牌",
-                f"对所有敌方造成{max(1,cost-1)}点伤害",
-            ],
-        }
-        return random.choice(cmd_patterns.get(faction, cmd_patterns['neutral']))
-    elif card_type == 'counter':
-        counter_patterns = {
-            'key_class': [
-                f"当对手打出费用≥{max(2,cost)}的卡时触发：使其费用+2并返回手牌",
-                f"当对手抽牌时触发：对其造成{max(1,cost//2)}点伤害",
-                f"当对手打出单位卡时触发：使其-{max(1,cost//2)}/-{max(1,cost//2)}",
-            ],
-            'arts_class': [
-                f"当敌方单位攻击时触发：使其攻击力减半（本回合）",
-                f"当对手打出命令卡时触发：取消该命令并造成{max(1,cost//2)}点伤害",
-                f"当对手打出单位卡时触发：将其移回手牌",
-            ],
-            'normal_class': [
-                f"当对手打出单位卡时触发：召唤1个1/1/1「吃瓜群众」",
-                f"当对手攻击时触发：阻止该攻击并对其造成{max(1,cost//2)}点伤害",
-                f"当对手打出卡时触发：抽1张牌",
-            ],
-            'intl_class': [
-                f"当对手打出费用≥{max(3,cost+1)}的卡时触发：使其费用+3",
-                f"当对手抽牌时触发：你抽1张牌",
-                f"当对手打出buff时触发：取消该效果并抽1张牌",
-            ],
-            'competition_class': [
-                f"当对手打出单位卡时触发：若费用≥你场上单位数×2，消灭之",
-                f"当对手打出卡时触发：使其-{max(1,cost//2)}/-{max(1,cost//2)}",
-                f"当对手攻击时触发：使攻击单位返回手牌",
-            ],
-            'neutral': [
-                f"当对手打出费用≥{max(3,cost+1)}的卡时触发：取消之",
-                f"当对手打出单位卡时触发：对所有敌方造成{max(1,cost//2)}点伤害",
-                f"当对手抽牌时触发：弃1张牌",
-            ],
-        }
-        return random.choice(counter_patterns.get(faction, counter_patterns['neutral']))
-    elif card_type == 'buff':
-        buff_patterns = {
-            'key_class': [
-                f"使一个单位+{max(1,cost//2)}/+{max(1,cost//2)}。若手牌≤2，额外+1/+1",
-                f"使一个单位获得「先攻」和+{max(2,cost)}攻击（本回合）",
-                f"使一个单位永久+{max(1,cost//2)}攻击",
-            ],
-            'arts_class': [
-                f"使一个「远程」单位+{max(2,cost)}攻击和「先攻」",
-                f"使一个单位+{max(1,cost//2)}/+{max(1,cost//2)}并获得「闪避」",
-                f"使一个单位永久获得「远程」和+{max(1,cost//3)}防御",
-            ],
-            'normal_class': [
-                f"使一个单位+{max(1,cost//2)}/+{max(1,cost//2)}。召唤1个1/1/1友军",
-                f"所有费用≤{max(1,cost-1)}单位+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"使一个单位获得「亡语：召唤1个1/1/1友军」",
-            ],
-            'intl_class': [
-                f"使一个单位+{max(1,cost//2)}/+{max(1,cost//2)}。若手牌≥5，抽1张牌",
-                f"使一个单位获得「先攻」和+{max(2,cost)}攻击",
-                f"使一个单位永久+{max(1,cost//3)}/+{max(1,cost//3)}并抽1张牌",
-            ],
-            'competition_class': [
-                f"使一个竞赛班单位永久+{max(2,cost)}攻击",
-                f"使一个单位获得「穿透」和+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"使一个竞赛班单位获得「免疫」（1回合）和+{max(1,cost//2)}/+{max(1,cost//2)}",
-            ],
-            'neutral': [
-                f"使一个单位+{max(1,cost//2)}/+{max(1,cost//2)}",
-                f"使一个单位获得+{max(1,cost//2)}攻击和「威慑」",
-                f"所有己方单位+{max(1,cost//3)}防御（持续2回合）",
-            ],
-        }
-        return random.choice(buff_patterns.get(faction, buff_patterns['neutral']))
+    for card in NEW_CARDS:
+        if card["id"] in existing_ids:
+            skipped += 1
+            continue
+        data["cards"].append(card)
+        existing_ids.add(card["id"])
+        added += 1
 
-def generate_name_and_id(faction, card_type, used_ids, used_names, id_counter):
-    prefix = PREFIX[faction]
-    if card_type == 'unit':
-        name_parts = [
-            random.choice(UNIT_PREFIXES[faction]),
-            random.choice(UNIT_SUFFIXES[faction]),
-        ]
-        if random.random() < 0.4:
-            adj = random.choice(['大', '小', '超级', '无敌', '终极', '初级', '首席', '王牌', '铁血', '冷面', '热血', '佛系', '暴躁'])
-            name = adj + ''.join(name_parts)
-        else:
-            name = ''.join(name_parts)
-    elif card_type == 'command':
-        name = random.choice(CMD_NAMES[faction])
-    elif card_type == 'counter':
-        name = random.choice(COUNTER_NAMES[faction])
-    else:
-        name = random.choice(BUFF_NAMES[faction])
+    with open(FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-    # Ensure unique name
-    while name in used_names:
-        if card_type == 'unit':
-            name = random.choice(UNIT_PREFIXES[faction]) + random.choice(UNIT_SUFFIXES[faction])
-            if random.random() < 0.3:
-                name = random.choice(['大', '小', '超级', '无敌', '终极']) + name
-        elif card_type == 'command':
-            name += '·改'
-        elif card_type == 'counter':
-            name += '·再现'
-        else:
-            name += '·续'
+    print(f"✅ Added {added} new cards, skipped {skipped} duplicates")
+    print(f"📊 Total cards now: {len(data['cards'])}")
 
-    # Generate ID
-    type_key = card_type
-    counter = id_counter.setdefault((faction, type_key), 1)
-    cid = f"{prefix}_{type_key}_{counter:03d}"
-    while cid in used_ids:
-        counter += 1
-        cid = f"{prefix}_{type_key}_{counter:03d}"
-    id_counter[(faction, type_key)] = counter + 1
-
-    return name, cid
-
-def generate_flavor(name):
-    return random.choice(FLAVOR_TEMPLATES).replace('{name}', name)
-
-# --- Build the card generation plan ---
-faction_needed = {k: v for k, v in needed['faction'].items()}
-type_needed = {k: v for k, v in needed['type'].items()}
-rarity_needed = {k: v for k, v in needed['rarity'].items()}
-
-# Allocate cards to (faction, type, rarity) combinations
-plan = []
-available_combos = [(f, t, r) for f in faction_needed for t in type_needed for r in rarity_needed]
-
-while sum(faction_needed.values()) > 0:
-    # Pick faction with highest remaining need
-    factions_sorted = sorted(faction_needed.items(), key=lambda x: -x[1])
-    faction = None
-    for f, n in factions_sorted:
-        if n > 0:
-            faction = f
-            break
-    if not faction:
-        break
-
-    # Pick type with highest proportion remaining
-    types_ratio = {}
-    for t, n in type_needed.items():
-        if n > 0:
-            target_prop = TARGET['type'][t] / 300
-            current_prop = (TARGET['type'][t] - n) / (300 - sum(faction_needed.values()) + 1)
-            types_ratio[t] = target_prop - current_prop
-    card_type = max(types_ratio, key=types_ratio.get)
-
-    # Pick rarity
-    rarities_ratio = {}
-    for r, n in rarity_needed.items():
-        if n > 0:
-            target_prop = TARGET['rarity'][r] / 300
-            current_prop = (TARGET['rarity'][r] - n) / (300 - sum(faction_needed.values()) + 1)
-            rarities_ratio[r] = target_prop - current_prop
-    rarity = max(rarities_ratio, key=rarities_ratio.get)
-
-    plan.append((faction, card_type, rarity))
-    faction_needed[faction] -= 1
-    type_needed[card_type] -= 1
-    rarity_needed[rarity] -= 1
-
-print(f"\nPlan generated: {len(plan)} cards")
-assert len(plan) == 203, f"Expected 203, got {len(plan)}"
-
-# Verify counts
-from collections import Counter
-plan_f = Counter(p[0] for p in plan)
-plan_t = Counter(p[1] for p in plan)
-plan_r = Counter(p[2] for p in plan)
-print(f"Plan faction: {dict(plan_f)}")
-print(f"Plan type: {dict(plan_t)}")
-print(f"Plan rarity: {dict(plan_r)}")
-
-# --- Generate cards ---
-id_counter = {}
-
-# Initialize counters based on existing cards
-for c in existing:
-    parts = c['id'].rsplit('_', 1)
-    if len(parts) == 2:
-        id_base, num_str = parts
-        if num_str.isdigit():
-            num = int(num_str)
-            # Extract faction prefix and type
-            pf = c['id'].split('_')[0]
-            # Determine the type key from the id pattern
-            # Existing IDs: {prefix}_{subtype}_{num} for units, {prefix}_cmd_{num} etc for non-units
-            type_part = '_'.join(c['id'].split('_')[1:-1])
-            # Map to our type categories
-            if type_part in ('student', 'sports', 'scholar', 'discipline', 'broadcast'):
-                key = (c['faction'], 'unit')
-            elif type_part == 'cmd':
-                key = (c['faction'], 'command')
-            elif type_part == 'counter':
-                key = (c['faction'], 'counter')
-            elif type_part == 'buff':
-                key = (c['faction'], 'buff')
-            else:
-                key = (c['faction'], 'unit')
-            if key not in id_counter or num >= id_counter[key]:
-                id_counter[key] = num + 1
-
-new_cards = list(existing)
-
-for faction, card_type, rarity in plan:
-    name, cid = generate_name_and_id(faction, card_type, existing_ids, existing_names, id_counter)
-    existing_ids.add(cid)
-    existing_names.add(name)
-
-    cost = pick_cost(rarity)
-    power, grit, spirit = generate_stats(cost, rarity, card_type)
-
-    # Subtype
-    if card_type == 'unit':
-        subtype = random.choice(['student', 'sports', 'scholar', 'discipline', 'broadcast'])
-    else:
-        subtype = None
-
-    ability = make_ability(card_type, faction, cost, rarity)
-    flavor = generate_flavor(name)
-
-    card = {
-        'id': cid,
-        'name': name,
-        'faction': faction,
-        'type': card_type,
-        'subtype': subtype,
-        'cost': cost,
-        'attack': power,
-        'defense': grit,
-        'hp': spirit,
-        'ability': ability,
-        'rarity': rarity,
-        'flavor': flavor,
-    }
-    new_cards.append(card)
-
-print(f"\nTotal cards after generation: {len(new_cards)}")
-
-# --- Verify ---
-final_f = Counter(c['faction'] for c in new_cards)
-final_t = Counter(c['type'] for c in new_cards)
-final_r = Counter(c['rarity'] for c in new_cards)
-
-print(f"\nFinal distribution:")
-print(f"  Faction: {dict(final_f)}")
-for k, v in TARGET['faction'].items():
-    print(f"    {k}: {final_f.get(k,0)} (target {v})")
-print(f"  Type: {dict(final_t)}")
-for k, v in TARGET['type'].items():
-    print(f"    {k}: {final_t.get(k,0)} (target {v})")
-print(f"  Rarity: {dict(final_r)}")
-for k, v in TARGET['rarity'].items():
-    print(f"    {k}: {final_r.get(k,0)} (target {v})")
-
-# Check for duplicate names/IDs
-all_ids = [c['id'] for c in new_cards]
-all_names = [c['name'] for c in new_cards]
-assert len(all_ids) == len(set(all_ids)), "Duplicate IDs!"
-assert len(all_names) == len(set(all_names)), "Duplicate names!"
-
-# Verify non-unit cards have 0 stats
-for c in new_cards:
-    if c['type'] != 'unit':
-        assert c['attack'] == 0 and c['defense'] == 0 and c['hp'] == 0, \
-            f"Non-unit card {c['id']} has non-zero stats"
-
-# Save
-data['cards'] = new_cards
-with open(json_path, 'w', encoding='utf-8') as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-
-print(f"\nSaved! Total cards: {len(new_cards)}")
+if __name__ == "__main__":
+    main()

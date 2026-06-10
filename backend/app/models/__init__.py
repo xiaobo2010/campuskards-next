@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, func
+from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -121,9 +121,9 @@ class Match(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     p1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     p2_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    winner_id: Mapped[uuid.UUID | None]
-    p1_deck_id: Mapped[uuid.UUID]
-    p2_deck_id: Mapped[uuid.UUID]
+    winner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    p1_deck_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decks.id"))
+    p2_deck_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decks.id"))
     mode: Mapped[str] = mapped_column(String(16), default="quick")  # quick | ranked
     end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     replay_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -144,6 +144,19 @@ class AdminAuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
+class UserCheckin(Base):
+    __tablename__ = "user_checkins"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    checkin_date: Mapped[datetime] = mapped_column(server_default=func.now())
+    streak: Mapped[int] = mapped_column(default=1)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "checkin_date"),
+    )
+
+
 class Announcement(Base):
     __tablename__ = "announcements"
 
@@ -158,3 +171,5 @@ class Announcement(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     author: Mapped["User"] = relationship(back_populates="announcements")
+
+from app.models.story import StoryChapter, StoryLevel, UserStoryProgress  # noqa: E402

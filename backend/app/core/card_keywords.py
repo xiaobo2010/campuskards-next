@@ -43,3 +43,9 @@ def is_advisor_card(effect_text: str, subtype: str | None = None) -> bool:
 
 def has_active_ability(effect_text: str) -> bool:
     return bool(re.search(r"主动[:：]|激活[:：]", effect_text or ""))
+
+
+def parse_ability_cooldown(effect_text: str) -> int:
+    """Extract cooldown from active ability text. Default 1 if not specified."""
+    m = re.search(r"冷却\s*(\d+)", effect_text or "")
+    return int(m.group(1)) if m else 1

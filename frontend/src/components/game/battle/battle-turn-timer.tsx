@@ -16,7 +16,7 @@ export default function BattleTurnTimer({
   isMyTurn,
   warningAt,
 }: BattleTurnTimerProps) {
-  const pct = Math.max(0, Math.min(100, (secondsLeft / turnLimit) * 100));
+  const pct = turnLimit > 0 ? Math.max(0, Math.min(100, (secondsLeft / turnLimit) * 100)) : 0;
   const urgent = isMyTurn && secondsLeft <= warningAt;
   const critical = isMyTurn && secondsLeft <= 5;
 

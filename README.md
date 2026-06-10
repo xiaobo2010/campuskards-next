@@ -1,6 +1,6 @@
 # CampusKards — 校园卡牌对战
 
-> 以校园生活为背景的策略卡牌对战游戏。五大学园势力，百种学生卡牌，实时在线对弈。
+> 以校园生活为背景的策略卡牌对战游戏。五大学园势力，500张学生卡牌，实时在线对弈 + 单人故事模式。
 
 ## 核心设定
 
@@ -168,6 +168,11 @@ npm run dev    # → http://localhost:3000
 | Shop | `POST /api/shop/packs/selector/{finalize,reroll}` | 选卡包（Redis 会话） |
 | Checkin | `GET /api/checkin/status` · `POST /api/checkin` | 每日签到 |
 | User | `GET /api/user/profile` · `PUT /api/user/avatar` | 资料与头像 |
+| Story | `GET /api/story/chapters` · `GET .../chapters/{id}` | 章节与关卡列表 |
+| Story | `GET /api/story/levels/{id}` | 关卡详情（含星级条件） |
+| Story | `POST /api/story/play` | 开始故事对战 |
+| Story | `POST /api/story/complete` | 上报通关结果 |
+| Story | `GET /api/story/progress` | 玩家进度汇总 |
 | Announcements | `GET /api/announcements` | 公告（只读） |
 | Admin | `GET /api/admin/stats` | `{ users, cards, announcements, total_ink }` |
 | Admin | `GET/PATCH /api/admin/users/{id}` | 用户管理 |
@@ -190,7 +195,8 @@ npm run dev    # → http://localhost:3000
 - ✅ **快速匹配**：休闲对战，AI 自动补位（15秒无人则匹配 AI）
 - ✅ **排位赛**：竞技对战，影响 ELO 分数
 - ✅ **PVE 练习**：单人挑战 AI（4 级难度：简单/中等/困难/大师）
-- ✅ **AI 难度自适应**：根据玩家 ELO 自动调整 AI 实力
+- ✅ **故事模式**：3章12关单人剧情，预设AI卡组，三星评分，通关奖励
+- ✅ **卡牌库**：500张卡牌，6个势力，53张主动技能卡（冷却机制）
 - ✅ **游戏引擎**：五派系协同/被动、抉择系统、反制陷阱、关键词完整
 - ✅ **WebSocket 实时同步**：全量状态 + 回合计时 + 超时处理
 - ✅ **BGM 系统**：大厅/对战自动切换、首点解锁、独立音量、Zustand persist
@@ -214,6 +220,7 @@ npm run dev    # → http://localhost:3000
 |------|------|
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | API 规范 · 架构决策 · Bug 清单 · 部署 |
 | [`BACKEND-GAP.md`](BACKEND-GAP.md) | API 差异与对战 v1 限制 |
+| [`docs/story-mode-design.md`](docs/story-mode-design.md) | 故事模式架构（已实施） |
 | [`docs/upgrade-system-design.md`](docs/upgrade-system-design.md) | 卡牌升级系统 |
 | [`docs/faction-synergy-design.md`](docs/faction-synergy-design.md) | 派系协同 |
 | [`docs/battlefield-depth-design.md`](docs/battlefield-depth-design.md) | 战场机制 |

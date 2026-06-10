@@ -30,6 +30,11 @@ import type {
   PackDefinition,
   PackOpenCard,
   PackOpenResult,
+  StoryChaptersResponse,
+  StoryChapter,
+  StoryLevelDetail,
+  StoryPlayResponse,
+  StoryProgress,
 } from "@/types";
 
 export type { PackDefinition, PackOpenCard, PackOpenResult };
@@ -716,6 +721,40 @@ export const matchApi = {
 
   getMatch(matchId: string): Promise<MatchDetail> {
     return apiFetch<MatchDetail>(`/api/match/${matchId}`);
+  },
+};
+
+// ---------- Story API ----------
+
+export const storyApi = {
+  listChapters(): Promise<StoryChaptersResponse> {
+    return apiFetch<StoryChaptersResponse>("/api/story/chapters");
+  },
+
+  getChapter(chapterId: string): Promise<StoryChapter> {
+    return apiFetch<StoryChapter>(`/api/story/chapters/${chapterId}`);
+  },
+
+  getLevelDetail(levelId: string): Promise<StoryLevelDetail> {
+    return apiFetch<StoryLevelDetail>(`/api/story/levels/${levelId}`);
+  },
+
+  startLevel(deckId: string, levelId: string): Promise<StoryPlayResponse> {
+    return apiFetch<StoryPlayResponse>("/api/story/play", {
+      method: "POST",
+      body: JSON.stringify({ deck_id: deckId, level_id: levelId }),
+    });
+  },
+
+  completeLevel(matchId: string, levelId: string, stars: number, bestTurns?: number, bestHpRemaining?: number): Promise<{ ink: number; cards: string[]; first_clear: boolean }> {
+    return apiFetch<{ ink: number; cards: string[]; first_clear: boolean }>("/api/story/complete", {
+      method: "POST",
+      body: JSON.stringify({ match_id: matchId, level_id: levelId, stars, best_turns: bestTurns, best_hp_remaining: bestHpRemaining }),
+    });
+  },
+
+  getProgress(): Promise<StoryProgress> {
+    return apiFetch<StoryProgress>("/api/story/progress");
   },
 };
 

@@ -12,7 +12,7 @@ export function HpBar({
   maxHp: number;
   compact?: boolean;
 }) {
-  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const pct = maxHp > 0 ? Math.max(0, Math.min(100, (hp / maxHp) * 100)) : 0;
   return (
     <div className={cn("space-y-0.5", compact && "space-y-0")}>
       <div className="flex items-center gap-1.5">

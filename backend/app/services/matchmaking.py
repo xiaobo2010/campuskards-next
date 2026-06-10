@@ -18,8 +18,8 @@ from app.core.cache import (
 )
 from app.services.pve_bot import BOT_DECK_ID, BOT_USER_ID, BOT_USERNAME
 
-MatchMode = Literal["quick", "ranked", "pve"]
-VALID_MODES: tuple[MatchMode, ...] = ("quick", "ranked", "pve")
+MatchMode = Literal["quick", "ranked", "pve", "story"]
+VALID_MODES: tuple[MatchMode, ...] = ("quick", "ranked", "pve", "story")
 QUEUE_MODES: tuple[MatchMode, ...] = ("quick", "ranked")
 
 QUEUE_KEY_TEMPLATE = "match:queue:{mode}"

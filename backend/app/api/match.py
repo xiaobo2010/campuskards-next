@@ -54,6 +54,8 @@ def _my_elo_change(match: Match, user_id: uuid.UUID) -> int:
 async def _start_match(
     db: AsyncSession,
     ticket,
+    special_rules: dict | None = None,
+    bot_difficulty_override: str | None = None,
 ) -> None:
     p1_deck = await _load_deck(db, uuid.UUID(ticket.p1_deck_id))
     p2_deck = await _load_deck(db, uuid.UUID(ticket.p2_deck_id))
@@ -77,6 +79,14 @@ async def _start_match(
     p1_ink = 10 + (elo_bonus_max_ink(p1_user.elo) if p1_user else 0)
     p2_ink = 10 + (elo_bonus_max_ink(p2_user.elo) if p2_user else 0)
 
+    # Apply story special_rules if provided
+    if special_rules:
+        starting_ink = special_rules.get("starting_ink", 1)
+        if starting_ink > 1:
+            p1_ink = starting_ink * 10  # starting_ink = 2 → 20 max ink
+        p2_ink += special_rules.get("enemy_ink_bonus", 0) * 10
+        p2_hp += special_rules.get("enemy_hq_hp_bonus", 0)
+
     match_row = Match(
         id=uuid.UUID(ticket.match_id),
         p1_id=uuid.UUID(ticket.p1_id),
@@ -88,11 +98,12 @@ async def _start_match(
     db.add(match_row)
     await db.commit()
 
-    bot_difficulty = None
-    if str(ticket.p2_id) == str(BOT_USER_ID):
-        bot_difficulty = elo_to_difficulty(ticket.p2_elo)
-    elif str(ticket.p1_id) == str(BOT_USER_ID):
-        bot_difficulty = elo_to_difficulty(ticket.p1_elo)
+    bot_difficulty = bot_difficulty_override
+    if bot_difficulty is None:
+        if str(ticket.p2_id) == str(BOT_USER_ID):
+            bot_difficulty = elo_to_difficulty(ticket.p2_elo)
+        elif str(ticket.p1_id) == str(BOT_USER_ID):
+            bot_difficulty = elo_to_difficulty(ticket.p1_elo)
 
     room = await game_manager.create_room(
         ticket,

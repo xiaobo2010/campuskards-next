@@ -11,11 +11,11 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { cardsApi, collectionApi, ApiError } from "@/lib/api";
 import { CardDetailModal } from "@/components/game/card-detail-modal";
-import CardPlaceholder from "@/components/game/card-placeholder";
 import { useAuth } from "@/lib/auth-context";
 import type { Card, UserCardOwnership, UpgradeResult } from "@/types";
 import { cn } from "@/lib/utils";
 import { FACTION_LABEL } from "@/lib/faction-labels";
+import { getCardEmoji } from "@/lib/card-emoji";
 
 const RARITY_COLORS: Record<string, string> = {
   common: "border-zinc-500/40",
@@ -49,14 +49,6 @@ const RARITY_ORDER: Record<string, number> = {
   rare: 2,
   uncommon: 3,
   common: 4,
-};
-
-const RARITY_EMOJI: Record<string, string> = {
-  legendary: "👑",
-  epic: "🔮",
-  rare: "💎",
-  uncommon: "✨",
-  common: "⚪",
 };
 
 /** Merge catalog cards with nested card objects from the user's collection. */
@@ -348,27 +340,31 @@ export default function CollectionPage() {
                         visible: { opacity: 1, scale: 1 },
                       }}
                     >
-                      <CardPlaceholder
-                        card={card}
-                        isOwned={isOwned}
+                      {/* Card body: emoji top + name bottom */}
+                      <div
                         onClick={() => handleCardClick(card)}
                         className={cn(
+                          "relative overflow-hidden rounded-lg aspect-[2/3] cursor-pointer select-none transition-shadow border",
                           RARITY_COLORS[rarity],
                           RARITY_BG[rarity] && `bg-gradient-to-b ${RARITY_BG[rarity]}`,
                           RARITY_GLOW[rarity] && `shadow-lg ${RARITY_GLOW[rarity]}`,
-                          !isOwned && "opacity-50 grayscale"
+                          !isOwned && "opacity-50 grayscale",
                         )}
                       >
-                        {/* Rarity emoji - top left */}
-                        <div className="absolute top-1.5 left-1.5 text-lg z-10 pointer-events-none select-none">
-                          {RARITY_EMOJI[rarity] ?? "⚪"}
+                        {/* Emoji — centered top half */}
+                        <div className="absolute inset-x-0 top-[8%] bottom-[42%] flex items-center justify-center pointer-events-none">
+                          <span className="text-4xl sm:text-5xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                            {getCardEmoji(card)}
+                          </span>
                         </div>
-                        {/* Card name overlay - bottom half */}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent pt-8 pb-1.5 px-2 pointer-events-none">
+
+                        {/* Name — bottom half with gradient backdrop */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent pt-10 pb-1.5 px-2 pointer-events-none">
                           <span className="text-[11px] font-bold text-white leading-tight line-clamp-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
                             {card.name}
                           </span>
                         </div>
+
                         {/* Level badge */}
                         {ownership?.level && ownership.level > 1 && (
                           <div className="absolute top-1 left-1 bg-gradient-to-r from-yellow-600 to-orange-600 px-1.5 py-0.5 rounded text-[10px] font-bold shadow-lg z-10">
@@ -383,13 +379,13 @@ export default function CollectionPage() {
                             </span>
                           </div>
                         )}
-                        {/* Count badge for duplicates */}
+                        {/* Count badge */}
                         {(ownership?.count ?? 0) > 1 && (
                           <div className="absolute top-1 right-1 bg-blue-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full z-10 shadow-lg">
                             ×{ownership!.count}
                           </div>
                         )}
-                      </CardPlaceholder>
+                      </div>
                     </motion.div>
                   );
                 })}
