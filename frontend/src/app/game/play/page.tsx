@@ -464,7 +464,7 @@ function PlayPageInner() {
       setAbilityTargetMode(null);
       return;
     }
-    if (unit.can_attack && (phase === "combat" || phase === "main")) {
+    if (phase === "combat" || phase === "main") {
       setSelectedAttackerUid(selectedAttackerUid === unit.uid ? null : unit.uid);
     }
   };
@@ -844,7 +844,7 @@ function PlayPageInner() {
             <Button
               className="gap-2 bg-purple-600 hover:bg-purple-500"
               onClick={handleEndTurn}
-              disabled={!isMyTurn || gameState?.game_over}
+              disabled={!isMyTurn || gameState?.game_over || !!pendingChoice}
             >
               <SkipForward className="w-4 h-4" />
               结束回合

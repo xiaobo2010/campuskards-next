@@ -26,6 +26,7 @@ from app.schemas.match import (
     PveMatchRequest,
     PveMatchResponse,
 )
+from app.schemas import PaginatedResponse
 from app.services.game_manager import expand_deck_cards, game_manager
 from app.services.matchmaking import ESTIMATED_WAIT_MS, MatchTicket, QueueEntry, matchmaking
 from app.services.pve_ai import elo_to_difficulty
@@ -242,7 +243,7 @@ async def start_pve_match(
 @router.delete("/queue", response_model=MatchQueueCancelResponse)
 async def leave_queue(
     user: User = Depends(_get_current_user),
-    mode: str | None = Query(default=None, pattern="^(quick|ranked)$"),
+    mode: str | None = Query(default=None, pattern="^(quick|ranked|pve|story)$"),
 ) -> MatchQueueCancelResponse:
     removed = await matchmaking.dequeue(str(user.id), mode=mode)  # type: ignore[arg-type]
     if not removed:
@@ -363,7 +364,7 @@ async def match_history(
     result: str | None = Query(default=None),
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> PaginatedResponse[MatchHistoryItem]:
     uid = user.id
     stmt = select(Match).where(or_(Match.p1_id == uid, Match.p2_id == uid))
     if result in ("win", "loss", "draw"):
@@ -381,7 +382,7 @@ async def match_history(
 
     items: list[MatchHistoryItem] = []
     if not rows:
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
     # Batch-fetch users and decks to avoid N+1 queries
     user_ids = set()
@@ -431,7 +432,7 @@ async def match_history(
             )
         )
 
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)

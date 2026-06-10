@@ -416,7 +416,7 @@ class GameManager:
                 raise GameError("Not your turn")
             line = "front" if position == "front" else "support"
             side = room.game.battlefield.side_for(player)
-            card = next((c for c in side.hand if c.uid == card_id), None) or next((c for c in side.hand if c.card_id == card_id), None)
+            card = next((c for c in side.hand if c.uid == card_id), None)
             if not card:
                 raise GameError(f"Card {card_id} not in hand")
 

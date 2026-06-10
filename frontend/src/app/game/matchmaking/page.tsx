@@ -67,7 +67,7 @@ export default function MatchmakingPage() {
         setMatchState("found");
         toast.success("匹配成功！正在进入对局...");
         setTimeout(() => {
-          router.push(`/game/play?match_id=${status.match_id}`);
+          router.push(`/game/play?matchId=${status.match_id}`);
         }, 1500);
       } else if (status.status === "idle") {
         setMatchState("idle");

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, KeyRound, Map } from "lucide-react";
+import { Menu, ChevronDown, LogOut, Home, Swords, BookOpen, ShoppingBag, Trophy, History, Camera, Settings2, KeyRound, Map, Briefcase } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -36,7 +36,8 @@ export default function MobileHeader() {
 
   const navItems = [
     { href: "/game", icon: Home, label: "主页" },
-    { href: "/game/play", icon: Swords, label: "对战" },
+    { href: "/game/decks", icon: Briefcase, label: "卡组" },
+    { href: "/game/matchmaking", icon: Swords, label: "对战" },
     { href: "/game/collection", icon: BookOpen, label: "图鉴" },
     { href: "/game/shop", icon: ShoppingBag, label: "商店" },
     { href: "/game/leaderboard", icon: Trophy, label: "排名" },
