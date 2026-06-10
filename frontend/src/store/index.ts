@@ -1,6 +1,6 @@
-export { useAuthStore } from './useAuthStore'
 export { useCollectionStore } from './useCollectionStore'
 export { useDeckStore } from './useDeckStore'
 export { useGameStore } from './useGameStore'
 export { useMatchStore } from './useMatchStore'
+export { useStoryStore } from './useStoryStore'
 export { useUIStore } from './useUIStore'

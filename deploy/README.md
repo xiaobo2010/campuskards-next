@@ -7,9 +7,10 @@ deploy/
 ├── deploy.sh              # 交互式部署总控（菜单选择）
 ├── deploy-backend.sh      # 后端独立部署
 ├── deploy-frontend.sh     # 前端独立部署
+├── upgrade.sh             # 一键升级（非交互，自动完成全部步骤）
 ├── rollback.sh            # 回滚工具（代码/数据库）
 ├── lib/
-│   └── common.sh          # 共享工具（uv/pip 检测、迁移检查、standalone 复制）
+│   └── common.sh          # 共享工具（uv/pip 检测、迁移检查、standalone 复制验证）
 ├── server/                # 后端服务器配置（systemd、环境变量、备份）
 │   ├── .env.example
 │   ├── backup.sh
@@ -46,14 +47,45 @@ sudo bash deploy/deploy.sh
 sudo bash deploy/deploy.sh
 ```
 
-提供 6 种模式：
+提供 7 种模式：
 
 1. **全量部署** — 拉代码 → 后端依赖 → 前端构建 → 迁移 → 重启
 2. **仅后端** — 拉代码 → 依赖 → 迁移 → （可选）重启
 3. **仅前端** — 拉代码 → 依赖 → 构建 → standalone 复制 → （可选）重启
 4. **仅重启服务** — 重启前/后端 systemd 服务
 5. **仅迁移** — 数据库备份 + 版本检查 + alembic upgrade
-6. **退出**
+6. **一键升级** — 非交互自动完成全部步骤（适合 CI/CD 和快速迭代）
+7. **退出**
+
+### 一键升级
+
+```bash
+# 全量升级（默认 main 分支）
+sudo bash deploy/upgrade.sh
+
+# 指定分支
+sudo bash deploy/upgrade.sh develop
+
+# 仅升级后端
+SKIP_FRONTEND=true sudo bash deploy/upgrade.sh
+
+# 仅升级前端
+SKIP_BACKEND=true sudo bash deploy/upgrade.sh
+
+# 构建但不重启（手动验证后重启）
+SKIP_RESTART=true sudo bash deploy/upgrade.sh
+
+# 跳过迁移（仅更新代码和依赖）
+SKIP_MIGRATE=true sudo bash deploy/upgrade.sh
+```
+
+升级流程：拉代码 → 后端依赖 → 数据库迁移 → 前端构建 → 复制 standalone 静态资源 → 验证构建完整性 → 重启服务 → HTTP 健康检查
+
+内置安全机制：
+- 并发锁（`upgrade.lock`）防止同时运行两次
+- 构建 ID 匹配检查（检测过期 .next/ 缓存）
+- standalone chunks/ 目录验证（防止 JS 404）
+- 每个阶段失败时立即退出
 
 ### 独立部署
 

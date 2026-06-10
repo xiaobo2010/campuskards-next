@@ -100,30 +100,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     async function checkSession() {
       try {
-        // Try cookie-based auth first
-        try {
-          const u = await authApi.me();
-          if (!cancelled) {
-            setUser(u);
-            setUserInk(u.ink ?? null);
-            setLoading(false);
-          }
-          return; // Cookie auth succeeded
-        } catch {
-          // Cookie auth failed, try localStorage token
+        const u = await authApi.me();
+        if (!cancelled) {
+          setUser(u);
+          setUserInk(u.ink ?? null);
         }
-
-        try {
-          const token = localStorage.getItem('access_token');
-          if (!token) { clearTokens(); return; }
-          const u = await authApi.me();
-          if (!cancelled) {
-            setUser(u);
-            setUserInk(u.ink ?? null);
-          }
-        } catch {
-          clearTokens();
-        }
+      } catch {
+        clearTokens();
       } finally {
         if (!cancelled) {
           setLoading(false);

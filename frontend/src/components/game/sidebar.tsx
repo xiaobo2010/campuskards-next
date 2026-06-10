@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home,
@@ -75,7 +75,6 @@ const ADMIN_NAV_ITEM: NavItem = {
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useUIStore((s) => s.toggleSidebarCollapsed);
   const [isMobile, setIsMobile] = useState(false);
@@ -136,7 +135,6 @@ export default function Sidebar() {
       setCurPwd("");
       setNewPwd("");
       logout();
-      router.push("/auth/login");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "修改失败");
     } finally {
@@ -146,7 +144,6 @@ export default function Sidebar() {
 
   function handleLogout() {
     logout();
-    router.push("/auth/login");
   }
 
   // Hidden on mobile — MobileHeader handles nav

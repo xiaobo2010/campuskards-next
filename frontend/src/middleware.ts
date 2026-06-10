@@ -4,26 +4,19 @@ import type { NextRequest } from "next/server";
 /**
  * Middleware — lightweight only:
  * - Redirects `/` → `/auth/login`
- * - Redirects authenticated users away from `/auth/login` → `/game` (cookie-based)
+ * - Clears auth cookies on `?logout=1`
  *
- * /game/* auth is handled client-side by AuthGuard + Bearer token.
- * Edge middleware cannot read localStorage; cookie-only gating caused redirect loops.
+ * All /game/* auth gating is handled client-side by AuthGuard + Bearer token.
+ * Middleware MUST NOT redirect based on cookies to avoid desync loops with
+ * the Bearer token auth flow (cookie can outlive localStorage tokens).
  */
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const raw = request.cookies.get("campuskards_token")?.value ?? null;
-  const token = raw && raw.split(".").length >= 3 ? raw : null;
 
   if (pathname === "/") {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/login";
-    return NextResponse.redirect(url);
-  }
-
-  if (pathname.startsWith("/auth/login") && token && !request.nextUrl.searchParams.has("logout")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/game";
     return NextResponse.redirect(url);
   }
 

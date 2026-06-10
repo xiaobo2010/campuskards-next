@@ -204,6 +204,23 @@ copy_standalone_assets() {
     return 0
   fi
 
+  # ── 检查构建 ID 是否匹配，处理过期缓存 ──
+  local main_build_id standalone_build_id
+  main_build_id=""
+  standalone_build_id=""
+  if [[ -f ".next/BUILD_ID" ]]; then
+    main_build_id=$(cat ".next/BUILD_ID")
+  fi
+  if [[ -f ".next/standalone/.next/BUILD_ID" ]]; then
+    standalone_build_id=$(cat ".next/standalone/.next/BUILD_ID")
+  fi
+
+  if [[ -n "$main_build_id" && "$main_build_id" != "$standalone_build_id" ]]; then
+    _log_warn "构建 ID 不匹配 (main: ${main_build_id}, standalone: ${standalone_build_id:-无})"
+    _log_info "清理旧 standalone 静态资源..."
+    rm -rf .next/standalone/.next/static .next/standalone/public
+  fi
+
   _log_info "复制 standalone 静态资源 (.next/static → .next/standalone/.next/static)..."
   mkdir -p .next/standalone/.next
   cp -r .next/static .next/standalone/.next/static
@@ -213,7 +230,32 @@ copy_standalone_assets() {
     cp -r public .next/standalone/public
   fi
 
-  _log_ok "standalone 静态资源复制完成"
+  # ── 构建验证 ──
+  local static_dir="${frontend_dir}/.next/standalone/.next/static"
+  local missing=0
+
+  if [[ ! -d "${static_dir}/chunks" ]]; then
+    _log_error "standalone 缺少 chunks/ 目录，JS 资源将 404！"
+    missing=999
+  else
+    local js_count
+    js_count=$(find "${static_dir}/chunks" -name '*.js' 2>/dev/null | wc -l)
+    if [[ "$js_count" -eq 0 ]]; then
+      _log_error "standalone chunks/ 中无 JS 文件，构建可能不完整"
+      missing=998
+    else
+      _log_ok "standalone 验证通过 (${js_count} JS chunks, BUILD_ID=${main_build_id:-?})"
+    fi
+  fi
+
+  # 同时检查 public 资产
+  if [[ -d ".next/standalone/public" ]]; then
+    local pub_count
+    pub_count=$(find ".next/standalone/public" -type f 2>/dev/null | wc -l)
+    _log_info "public/ 资产: ${pub_count} 个文件"
+  fi
+
+  return $([[ $missing -eq 0 ]] && echo 0 || echo 1)
 }
 
 # ── 从 service 文件读取前端端口 ──

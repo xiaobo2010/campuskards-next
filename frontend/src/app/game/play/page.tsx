@@ -250,10 +250,6 @@ function PlayPageInner() {
   } = useTurnTimer(isMyTurn);
 
   useEffect(() => {
-    if (!authLoading && !user) router.replace("/auth/login");
-  }, [user, authLoading, router]);
-
-  useEffect(() => {
     if (matchIdFromUrl && matchIdFromUrl !== storedMatchId) {
       setCurrentGame(matchIdFromUrl, opponent);
     }

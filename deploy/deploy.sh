@@ -293,10 +293,11 @@ echo "  2) 仅部署后端（依赖安装 + 迁移）"
 echo "  3) 仅部署前端（依赖安装 + 构建）"
 echo "  4) 仅重启服务"
 echo "  5) 仅运行数据库迁移"
-echo "  6) 退出"
+echo "  6) 一键升级（非交互，自动完成全部步骤）"
+echo "  7) 退出"
 echo ""
 
-read -r -p "$(echo -e "${YELLOW}?${NC} 输入编号 [1-6]: ")" mode
+read -r -p "$(echo -e "${YELLOW}?${NC} 输入编号 [1-7]: ")" mode
 echo ""
 
 case "$mode" in
@@ -365,6 +366,12 @@ case "$mode" in
     print_summary
     ;;
   6)
+    log_info "模式: 一键升级（非交互）"
+    read -r -p "$(echo -e "${YELLOW}?${NC} 分支名 [main]: ")" BRANCH
+    BRANCH="${BRANCH:-main}"
+    bash "${SCRIPT_DIR}/upgrade.sh" "$BRANCH"
+    ;;
+  7)
     log_info "部署已取消"
     exit 0
     ;;
