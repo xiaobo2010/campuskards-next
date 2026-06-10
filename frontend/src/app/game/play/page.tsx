@@ -215,6 +215,7 @@ function PlayPageInner() {
 
   const [gameOver, setGameOver] = useState<GameOverPayload | null>(null);
   const [surrendering, setSurrendering] = useState(false);
+  const [showSurrenderConfirm, setShowSurrenderConfirm] = useState(false);
   const [placementCard, setPlacementCard] = useState<BattleUnit | null>(null);
   const [choiceOptionId, setChoiceOptionId] = useState<string | null>(null);
   const [choiceAwaitingTarget, setChoiceAwaitingTarget] = useState(false);
@@ -249,7 +250,7 @@ function PlayPageInner() {
   } = useTurnTimer(isMyTurn);
 
   useEffect(() => {
-    if (!authLoading && !user) router.push("/auth/login");
+    if (!authLoading && !user) router.replace("/auth/login");
   }, [user, authLoading, router]);
 
   useEffect(() => {
@@ -271,6 +272,8 @@ function PlayPageInner() {
           setChoiceOptionId(null);
           setChoiceAwaitingTarget(false);
           setDiscardSelected([]);
+          setAbilityTargetMode(null);
+          setSpellTargetMode(null);
         }
       },
       onTurnStart: (payload) => {
@@ -552,7 +555,11 @@ function PlayPageInner() {
 
   const handleSurrender = async () => {
     if (!matchId || surrendering) return;
-    if (!confirm("确定要投降吗？")) return;
+    if (!showSurrenderConfirm) {
+      setShowSurrenderConfirm(true);
+      return;
+    }
+    setShowSurrenderConfirm(false);
     setSurrendering(true);
     try {
       await matchApi.surrender(matchId);
@@ -625,8 +632,18 @@ function PlayPageInner() {
           onClick={handleSurrender}
           disabled={surrendering || gameState?.game_over}
         >
-          投降
+          {showSurrenderConfirm ? "确定投降？" : "投降"}
         </Button>
+        {showSurrenderConfirm && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-zinc-400 hover:text-zinc-300 shrink-0"
+            onClick={() => setShowSurrenderConfirm(false)}
+          >
+            取消
+          </Button>
+        )}
       </header>
 
       <div className="flex-1 flex flex-col p-3 gap-3 max-w-4xl mx-auto w-full">

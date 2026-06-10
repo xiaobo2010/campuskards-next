@@ -179,11 +179,17 @@ async def _grant_newbie_deck(db: AsyncSession, user: User) -> None:
             chosen.append(card)
             used[card.id] += 1
 
+    # Batch-fetch existing UserCards to avoid N+1 queries
+    chosen_ids = [c.id for c in chosen]
+    existing_stmt = select(UserCard).where(
+        UserCard.user_id == user.id,
+        UserCard.card_id.in_(chosen_ids),
+    )
+    existing_rows = (await db.execute(existing_stmt)).scalars().all()
+    existing_map = {row.card_id: row for row in existing_rows}
+
     for card in chosen:
-        existing = await db.execute(
-            select(UserCard).where(UserCard.user_id == user.id, UserCard.card_id == card.id)
-        )
-        uc = existing.scalar_one_or_none()
+        uc = existing_map.get(card.id)
         if uc:
             uc.count = (uc.count or 0) + 1
         else:
@@ -317,6 +323,13 @@ async def set_cookie(
     refresh_payload = decode_token(body.refresh_token)
     if not refresh_payload or refresh_payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="无效的刷新令牌")
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).timestamp()
+    if access_payload.get("exp", 0) < now:
+        raise HTTPException(status_code=401, detail="访问令牌已过期")
+    if refresh_payload.get("exp", 0) < now:
+        raise HTTPException(status_code=401, detail="刷新令牌已过期")
 
     if access_payload.get("sub") != refresh_payload.get("sub"):
         raise HTTPException(status_code=400, detail="访问令牌与刷新令牌用户不一致")

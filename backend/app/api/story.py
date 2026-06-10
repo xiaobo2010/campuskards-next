@@ -463,6 +463,22 @@ async def complete_level(
     if not match_row.ended_at:
         raise HTTPException(status_code=400, detail="对战尚未结束")
 
+    # Anti-cheat: user must be the winner
+    if match_row.winner_id != user.id:
+        raise HTTPException(status_code=400, detail="只有获胜者可以结算故事关卡")
+
+    # Validate reward values against match replay data
+    if body.stars < 1 or body.stars > 3:
+        raise HTTPException(status_code=422, detail="星数必须在1-3之间")
+    if body.best_turns is not None and body.best_turns < 1:
+        raise HTTPException(status_code=422, detail="回合数必须大于0")
+    if body.best_hp_remaining is not None and body.best_hp_remaining < 0:
+        raise HTTPException(status_code=422, detail="剩余生命值不能为负")
+
+    # Cross-reference turns_played from match row if available
+    if match_row.turns_played and body.best_turns is not None and body.best_turns > match_row.turns_played:
+        raise HTTPException(status_code=422, detail="上报回合数超过对战实际回合数")
+
     # Upsert progress
     stmt = select(UserStoryProgress).where(
         UserStoryProgress.user_id == user.id,

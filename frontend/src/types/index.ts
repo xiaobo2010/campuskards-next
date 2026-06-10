@@ -65,7 +65,7 @@ export interface Card {
 export interface DeckCardEntry {
   card_id: string;
   quantity: number;
-  card?: Card;
+  card?: Card | null;
 }
 
 export interface Deck {
@@ -450,6 +450,7 @@ export interface PackDefinition {
   cost_type?: string;
   price_elo?: number;
   min_elo?: number;
+  faction_code?: string | null;
 }
 
 export interface PackOpenCard {

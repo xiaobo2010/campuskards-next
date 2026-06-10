@@ -3,7 +3,8 @@ node_modules/
 __pycache__/
 *.pyc
 .venv/
-.env
+.env*
+!.env.example
 
 # Build
 frontend/.next/

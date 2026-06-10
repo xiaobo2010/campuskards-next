@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-MatchMode = Literal["quick", "ranked", "pve"]
+MatchMode = Literal["quick", "ranked", "pve", "story"]
 
 
 class MatchQueueRequest(BaseModel):

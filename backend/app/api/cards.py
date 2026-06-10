@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.auth import _get_current_user as get_current_user
 from app.models import Card, UserCard, User
-from app.schemas.card import CardOut
+from app.schemas.card import CardOut, UpgradeCardOut
 from app.schemas import PaginatedResponse
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
@@ -78,7 +78,7 @@ async def list_cards(
 
     if all_cards:
         page = 1
-        page_size = min(max(total, 1), 500)
+        page_size = max(total, 1)
 
     stmt = stmt.order_by(Card.cost, Card.name).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(stmt)
@@ -117,7 +117,7 @@ async def check_owned(
     return {"owned": result.scalar_one_or_none() is not None}
 
 
-@router.post("/{card_id}/upgrade")
+@router.post("/{card_id}/upgrade", response_model=UpgradeCardOut)
 async def upgrade_card(
     card_id: str,
     db: AsyncSession = Depends(get_db),
@@ -191,7 +191,11 @@ async def upgrade_card(
     new_grit = base_grit + (new_level - 1) * growth["grit"]
     new_spirit = base_spirit + (new_level - 1) * growth["spirit"]
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail="升级失败，请稍后重试")
 
     return {
         "card_id": card_id,

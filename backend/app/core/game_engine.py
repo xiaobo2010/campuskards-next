@@ -144,8 +144,8 @@ class CardInstance:
         self._synergy_spirit_bonus = spirit_bonus
         self._local_synergy_power = local_power
         self.synergy_tags = tags
-        if spirit_delta > 0:
-            self.spirit += spirit_delta
+        if spirit_delta != 0:
+            self.spirit = max(1, self.spirit + spirit_delta)
         self._refresh_effective_stats()
 
     def apply_temp_buff(
@@ -164,7 +164,7 @@ class CardInstance:
 
     def clear_temp_buffs(self) -> None:
         if self._temp_spirit:
-            self.spirit = max(1, self.spirit - self._temp_spirit)
+            self.spirit = max(0, self.spirit - self._temp_spirit)
         self._temp_power = 0
         self._temp_grit = 0
         self._temp_spirit = 0
@@ -281,6 +281,8 @@ class GameState:
             self._log(player, "corridor_bonus", "+1 ink from corridor control")
 
         self._draw_card(player)
+        if self.game_over:
+            return
         apply_turn_start_passives(self, player)
         apply_all_synergies(self)
         self._log(player, "draw_phase", f"ink refilled to {side.ink}")
@@ -289,6 +291,7 @@ class GameState:
     def begin_combat_phase(self) -> None:
         self._require_phase(Phase.MAIN)
         self._require_current_player()
+        self._require_no_pending()
         self.phase = Phase.COMBAT
         side = self.battlefield.side_for(self.current_player)
         apply_all_synergies(self)
@@ -315,12 +318,20 @@ class GameState:
 
     # ─── Core operations ───
 
+    MAX_HAND_SIZE = 10
+
     def _draw_card(self, player: int) -> CardInstance | None:
         side = self.battlefield.side_for(player)
         if not side.deck:
             side.spirit_total -= 1
             self._log(player, "fatigue", f"spirit -1 (now {side.spirit_total})")
             self._check_death(player)
+            return None
+        if len(side.hand) >= self.MAX_HAND_SIZE:
+            # Hand is full — burn the drawn card (goes to graveyard)
+            card = side.deck.pop()
+            side.graveyard.append(card)
+            self._log(player, "hand_full", f"burned {card.name} (hand full)")
             return None
         card = side.deck.pop()
         side.hand.append(card)
@@ -394,6 +405,7 @@ class GameState:
         *,
         target_uid: str | None = None,
     ) -> CardInstance:
+        self._require_no_game_over()
         self._require_phase(Phase.MAIN)
         self._require_current_player()
         self._require_no_pending()
@@ -425,8 +437,9 @@ class GameState:
             cost=cost,
         )
         if check_traps_on_play(self, event):
+            side.ink += cost  # Refund ink when trap cancels spell
             side.graveyard.append(card)
-            self._log(player, "play_spell", f"{card.name} cancelled by trap")
+            self._log(player, "play_spell", f"{card.name} cancelled by trap — ink refunded")
             return card
 
         effect_text = card.effect_text or card.effect_code or ""
@@ -527,6 +540,7 @@ class GameState:
         line: str = "front",
         slot: int | None = None,
     ) -> CardInstance:
+        self._require_no_game_over()
         self._require_phase(Phase.MAIN)
         self._require_current_player()
         self._require_no_pending()
@@ -572,8 +586,9 @@ class GameState:
             cost=cost,
         )
         if check_traps_on_play(self, event):
+            side.ink += cost  # Refund ink when trap cancels deployment
             side.graveyard.append(card)
-            self._log(player, "deploy", f"{card.name} cancelled by trap")
+            self._log(player, "deploy", f"{card.name} cancelled by trap — ink refunded")
             return card
 
         insert_at = len(target_line) if slot is None else max(0, min(slot, len(target_line)))
@@ -670,6 +685,7 @@ class GameState:
         return unit
 
     def attack(self, attacker_uid: str, target_uid: str | None = None) -> CombatResult:
+        self._require_no_game_over()
         self._require_phase(Phase.COMBAT)
         self._require_current_player()
         self._require_no_pending()
@@ -698,6 +714,8 @@ class GameState:
                 f"{attacker.name} → face for {atk_power} (spirit {opponent.spirit_total})",
             )
             self._check_death(2 if player == 1 else 1)
+            if self.game_over:
+                apply_all_synergies(self)
             return CombatResult(
                 attacker_survived=True,
                 defender_survived=False,
@@ -753,12 +771,22 @@ class GameState:
                     f"overflow {overflow} → face (spirit {opponent.spirit_total})",
                 )
             self._check_death(2 if player == 1 else 1)
+            if self.game_over:
+                apply_all_synergies(self)
+                result.defender_survived = False
+                result.attacker_survived = attacker.alive
+                return result
 
         if not attacker.alive:
             side.remove_unit(attacker)
             side.graveyard.append(attacker)
             _trigger_deathrattle(self, attacker.owner, attacker)
             self._check_death(player)
+            if self.game_over:
+                apply_all_synergies(self)
+                result.defender_survived = defender.alive
+                result.attacker_survived = False
+                return result
 
         apply_all_synergies(self)
         self._log(
@@ -775,7 +803,9 @@ class GameState:
         *,
         target_uid: str | None = None,
     ) -> None:
-        """Activate a unit's on-board ability (主动/激活)."""
+        """Activate a unit's on-board ability (主动/激活). Only in MAIN phase."""
+        self._require_no_game_over()
+        self._require_phase(Phase.MAIN)
         self._require_current_player()
         self._require_no_pending()
         player = self.current_player
@@ -910,16 +940,24 @@ class GameState:
         if self.pending_resolution:
             raise GameError("Resolve pending effect choice first")
 
+    def _require_no_game_over(self) -> None:
+        if self.game_over:
+            raise GameError("Game is already over")
+
     def _require_current_player(self) -> None:
         if self.current_player not in (1, 2):
             raise GameError(f"Invalid current player: {self.current_player}")
 
     def _check_death(self, player: int) -> None:
         side = self.battlefield.side_for(player)
-        if side.spirit_total <= 0:
+        if side.spirit_total <= 0 and not self.game_over:
             self.game_over = True
             self.winner = 2 if player == 1 else 1
             self._log(self.winner, "victory", f"Player {self.winner} wins!")
+        elif side.spirit_total <= 0 and self.game_over:
+            # Both players dead simultaneously → draw
+            self.winner = 0
+            self._log(0, "draw", "Both players fell simultaneously")
 
     def _log(self, player: int, action: str, detail: str = "") -> None:
         self.logs.append(

@@ -31,7 +31,7 @@ async def upload_avatar(
     if avatar.content_type not in ALLOWED_TYPES:
         raise HTTPException(400, "仅支持 JPG/PNG/WebP 格式")
 
-    content = await avatar.read()
+    content = await avatar.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
         raise HTTPException(400, "文件大小不能超过 2MB")
 

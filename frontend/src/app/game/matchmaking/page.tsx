@@ -33,7 +33,7 @@ export default function MatchmakingPage() {
   useEffect(() => {
     if (!authLoading && !user) {
       toast.error("请先登录");
-      router.push("/auth/login");
+      router.replace("/auth/login");
     }
   }, [user, authLoading, router]);
 

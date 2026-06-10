@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+FRAGMENT_VALUES: dict[str, int] = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 8}
+
 
 class PackOut(BaseModel):
     id: str

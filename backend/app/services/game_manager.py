@@ -576,6 +576,8 @@ class GameManager:
                 })
 
             for attacker_id in attacker_ids:
+                if room.game.game_over:
+                    break
                 before_opp = room.game.battlefield.opponent_side(player).all_units[:]
                 before_opp_hp = room.game.battlefield.opponent_side(player).spirit_total
                 room.game.attack(attacker_id, target_id)

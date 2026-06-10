@@ -17,6 +17,8 @@ from .faction_synergy import (
     NORMAL_CLASS,
 )
 
+from .battlefield import MAX_FRONT_LINE, MAX_SUPPORT_LINE
+
 if TYPE_CHECKING:
     from .game_engine import CardInstance, GameState
 
@@ -91,12 +93,17 @@ def _find_target(
     target_uid: str | None,
     *,
     prefer_enemy: bool = True,
+    enemy_only: bool = False,
 ) -> CardInstance | None:
     if target_uid:
         pools = (
-            [_all_enemy_units, _all_friendly_units]
-            if prefer_enemy
-            else [_all_friendly_units, _all_enemy_units]
+            [_all_enemy_units]
+            if enemy_only
+            else (
+                [_all_enemy_units, _all_friendly_units]
+                if prefer_enemy
+                else [_all_friendly_units, _all_enemy_units]
+            )
         )
         for pool_fn in pools:
             for u in pool_fn(game, player):
@@ -219,7 +226,7 @@ def execute_effect_text(
     if dmg and "伤害" in text:
         target = None
         if target_uid:
-            target = _find_target(game, player, target_uid)
+            target = _find_target(game, player, target_uid, enemy_only=True)
         elif "随机" in text:
             target = _random_enemy_unit(game, player)
         elif "敌方" in text or "任意目标" in text:
@@ -461,7 +468,7 @@ def _apply_status_and_control_effects(
                 source_unit.effect_text = (source_unit.effect_text or "") + ";" + target.effect_text
             _log(game, player, "effect_devour", target.name)
 
-    # Mind control
+    # Mind control — move unit to controller's side
     if "操控" in text:
         cap = 99
         cm = re.search(r"费用≤(\d+)", text)
@@ -469,11 +476,29 @@ def _apply_status_and_control_effects(
             cap = int(cm.group(1))
         target = _find_target(game, player, target_uid, prefer_enemy=True)
         if target and target.cost <= cap:
+            opp = game.battlefield.opponent_side(player)
+            side = game.battlefield.side_for(player)
+            # Remove from opponent's board, add to controller's side
+            opp.remove_unit(target)
+            if target.unit_type == "melee" and "flying" not in target.keywords:
+                # Melee units go to front line
+                if len(side.front_line) < MAX_FRONT_LINE:
+                    side.front_line.append(target)
+                else:
+                    side.support_line.append(target)
+            else:
+                if len(side.support_line) < MAX_SUPPORT_LINE:
+                    side.support_line.append(target)
+                else:
+                    side.front_line.append(target)
             target.controlled_by = player
             target.controlled_until_turn = game.turn
+            target.owner = player
+            target.can_attack = True
+            target.has_attacked = False
             _log(game, player, "effect_control", target.name)
 
-    # Return to deck / hand
+    # Return to deck / hand — use elif to prevent double-trigger
     if "返回" in text and "牌库" in text:
         target = _find_target(game, player, target_uid, prefer_enemy=True)
         if target:
@@ -482,7 +507,7 @@ def _apply_status_and_control_effects(
             opp.deck.insert(0, target)
             _log(game, player, "effect_return", f"{target.name} → deck top")
 
-    if "返回" in text and "手牌" in text:
+    elif "返回" in text and "手牌" in text:
         target = _find_target(game, player, target_uid, prefer_enemy=True)
         if target:
             opp = game.battlefield.opponent_side(player)
@@ -490,7 +515,7 @@ def _apply_status_and_control_effects(
             opp.hand.append(target)
             _log(game, player, "effect_return", f"{target.name} → hand")
 
-    # Permanent debuff
+    # Permanent debuff — only modify _perm_power_mod (effective stats sum base + perm_mod)
     m = re.search(r"永久\s*-(\d+)\s*攻击", text)
     if m:
         amt = int(m.group(1))
@@ -500,7 +525,6 @@ def _apply_status_and_control_effects(
             target = _find_target(game, player, target_uid, prefer_enemy=True)
         if target:
             target._perm_power_mod -= amt
-            target.base_power = max(0, target.base_power - amt)
             target._refresh_effective_stats()
 
     # Cannot attack
@@ -509,16 +533,15 @@ def _apply_status_and_control_effects(
         if target:
             apply_cannot_attack(target, 1)
 
-    # -N/-N debuff on play
+    # -N/-N debuff on play — only modify _perm_power_mod (effective stats sum base + perm_mod)
     m = re.search(r"使其\s*-(\d+)/-(\d+)", text)
     if m:
         pw, sp = int(m.group(1)), int(m.group(2))
         target = _find_target(game, player, target_uid, prefer_enemy=True)
         if target:
-            target.base_power = max(0, target.base_power - pw)
-            target.base_spirit = max(1, target.base_spirit - sp)
-            target.spirit = max(1, target.spirit - sp)
             target._perm_power_mod -= pw
+            target.spirit = max(1, target.spirit - sp)
+            target.base_spirit = max(1, target.base_spirit - sp)
             target._refresh_effective_stats()
 
 

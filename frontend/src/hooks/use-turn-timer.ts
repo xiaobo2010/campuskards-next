@@ -60,7 +60,7 @@ export function useTurnTimer(isMyTurn: boolean) {
       }
     };
     tick();
-    const id = setInterval(tick, 250);
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [deadlineTs, isMyTurn]);
 

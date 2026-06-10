@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, text as sa_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.types import JSON
@@ -11,6 +11,7 @@ from sqlalchemy.types import JSON
 from app.core.config import settings
 from app.main import app
 from app.models import Base
+from sqlalchemy.sql.elements import TextClause
 
 # 测试用 SQLite 内存库
 TEST_DB_URL = "sqlite+aiosqlite:///file::memory:?cache=shared&uri=true"
@@ -20,13 +21,17 @@ TestSession = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_com
 
 @event.listens_for(Base.metadata, "before_create")
 def _jsonb_to_json_for_sqlite(target, connection, **kw):
-    """Replace PostgreSQL JSONB columns with plain JSON when using SQLite."""
+    """Replace PostgreSQL JSONB columns and ::jsonb defaults with plain JSON when using SQLite."""
     if connection.engine.dialect.name == "postgresql":
         return
     for table in target.tables.values():
         for column in table.columns:
             if isinstance(column.type, JSONB):
                 column.type = JSON()
+                # Replace PostgreSQL-specific ::jsonb defaults with SQLite-compatible JSON defaults
+                if column.server_default is not None and isinstance(column.server_default.arg, TextClause):
+                    raw = str(column.server_default.arg).replace("::jsonb", "")
+                    column.server_default = sa_text(raw)
 
 
 @pytest.fixture(scope="session")

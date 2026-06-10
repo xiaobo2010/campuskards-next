@@ -14,6 +14,7 @@ from app.core.cache import cache_delete, get_redis
 from app.core.database import get_db
 from app.models import Card, User, UserCard
 from app.schemas.shop import (
+    FRAGMENT_VALUES,
     OpenPackRequest,
     OpenPackResponse,
     PackCardItem,
@@ -25,7 +26,6 @@ from app.schemas.shop import (
 router = APIRouter(prefix="/api/shop", tags=["shop"])
 
 RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary"]
-FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 8}
 SELECTOR_SESSION_TTL_SEC = 30 * 60
 _SESSION_KEY_PREFIX = "selector_session:"
 

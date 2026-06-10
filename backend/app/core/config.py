@@ -1,5 +1,3 @@
-import warnings
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,17 +25,13 @@ class Settings(BaseSettings):
     def model_post_init(self, __context) -> None:
         if self.ENVIRONMENT == "production":
             if self.SECRET_KEY == "change-me-to-random-hex-32-chars":
-                warnings.warn(
-                    "SECRET_KEY is still the default value! Generate a random 32-char hex string for production.",
-                    RuntimeWarning,
-                    stacklevel=1,
+                raise ValueError(
+                    "SECRET_KEY is still the default value! Generate a random 32-char hex string for production."
                 )
             if "changeme" in self.DATABASE_URL:
-                warnings.warn(
+                raise ValueError(
                     "DATABASE_URL still has the default password placeholder! "
-                    "Set a strong password in production.",
-                    RuntimeWarning,
-                    stacklevel=1,
+                    "Set a strong password in production."
                 )
 
 

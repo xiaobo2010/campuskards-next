@@ -13,10 +13,9 @@ from app.models import User, UserCard, Card
 from app.schemas.card import CardOut
 from app.schemas.collection import UserCardOut
 from app.api.cards import upgrade_card as cards_upgrade_card
+from app.schemas.shop import FRAGMENT_VALUES
 
 router = APIRouter(prefix="/api/collection", tags=["collection"])
-
-FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 8}
 
 
 class AddCollectionRequest(BaseModel):

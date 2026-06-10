@@ -90,3 +90,13 @@ class DeckListOut(BaseModel):
     faction_code: str
     card_count: int = 0
     created_at: datetime | None = None
+
+
+class UpgradeCardOut(BaseModel):
+    card_id: str
+    new_level: int
+    power: int
+    grit: int
+    spirit: int
+    fragments_remaining: int
+    ink_remaining: int

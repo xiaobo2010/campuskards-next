@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, ForeignKey, func, UniqueConstraint
+from sqlalchemy import String, Text, ForeignKey, func, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,11 +37,11 @@ class StoryLevel(Base):
     enemy_deck_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decks.id"))
     difficulty: Mapped[str] = mapped_column(String(16), default="medium", server_default="medium")
     ink_reward: Mapped[int] = mapped_column(default=200, server_default="200")
-    card_reward_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
-    special_rules: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    card_reward_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    special_rules: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     unlock_previous: Mapped[bool] = mapped_column(default=True, server_default="true")
     max_turns: Mapped[int] = mapped_column(default=0, server_default="0")
-    star_conditions: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    star_conditions: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     sort_order: Mapped[int] = mapped_column(default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
 

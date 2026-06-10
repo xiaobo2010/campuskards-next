@@ -119,12 +119,12 @@ class Match(Base):
     __tablename__ = "matches"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    p1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    p2_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    p1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    p2_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     winner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     p1_deck_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decks.id"))
     p2_deck_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decks.id"))
-    mode: Mapped[str] = mapped_column(String(16), default="quick")  # quick | ranked
+    mode: Mapped[str] = mapped_column(String(16), default="quick", index=True)  # quick | ranked | story | pve
     end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     replay_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
@@ -163,7 +163,7 @@ class Announcement(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(128))
     content: Mapped[str] = mapped_column(Text)
-    category: Mapped[str] = mapped_column(String(20), default="general")  # update|event|maintenance|general
+    category: Mapped[str] = mapped_column(String(32), default="general")  # update|event|maintenance|general
     priority: Mapped[str] = mapped_column(String(10), default="normal")   # low|normal|high|urgent
     is_pinned: Mapped[bool] = mapped_column(default=False)
     author_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

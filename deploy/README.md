@@ -125,12 +125,17 @@ alembic upgrade head
 
 ```
 f697305bb47d (initial)
-  → 3c1a47e80688
-  → a1b2c3d4e5f6
-  → b4c5d6e7f8a9
-  → 002_upgrade_system
-  → c5d6e7f8a9b0
-  → d6e7f8a9b0c1 (head, 含 token_version + newbie_claimed 兜底)
+  → 3c1a47e80688 (announcements + user_role)
+  → a1b2c3d4e5f6 (reset_key + ink)
+  → b4c5d6e7f8a9 (match_mode_replay)
+  → 002_upgrade_system (avatar_url + level/fragments)
+  → c5d6e7f8a9b0 (fix_columns_add_fks)
+  → d6e7f8a9b0c1 (token_version + newbie_claimed)
+  → 085f04087e35 (widen_faction_columns)
+  → e8f9a0b1c2d3 (admin_audit_logs)
+  → 3690c463404a (user_checkins)
+  → a1b2d3e4f5a6 (story_tables)
+  → fc459ca2775f (performance_indexes, HEAD)
 ```
 
 ## Next.js Standalone 模式

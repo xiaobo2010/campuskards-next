@@ -235,7 +235,7 @@ export default function BattleResultScreen({
                 <ul className="space-y-1.5 max-h-48 overflow-y-auto text-xs font-mono">
                   {eventLog.map((ev, i) => (
                     <li
-                      key={i}
+                      key={`${ev.action ?? ""}-${i}`}
                       className="text-zinc-400 border-l-2 border-zinc-700 pl-2 py-0.5"
                     >
                       {formatEvent(ev)}

@@ -109,6 +109,12 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    # Prevent self-demotion / self-deactivation
+    if user.id == admin.id:
+        changes = body.model_dump(exclude_unset=True)
+        if "role" in changes or "is_active" in changes:
+            raise HTTPException(status_code=403, detail="不能修改自己的角色或激活状态")
+
     before = {k: str(getattr(user, k, "")) for k in body.model_dump(exclude_unset=True)}
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():

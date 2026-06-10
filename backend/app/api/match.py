@@ -96,7 +96,6 @@ async def _start_match(
         mode=ticket.mode,
     )
     db.add(match_row)
-    await db.commit()
 
     bot_difficulty = bot_difficulty_override
     if bot_difficulty is None:
@@ -105,16 +104,26 @@ async def _start_match(
         elif str(ticket.p1_id) == str(BOT_USER_ID):
             bot_difficulty = elo_to_difficulty(ticket.p1_elo)
 
-    room = await game_manager.create_room(
-        ticket,
-        p1_cards,
-        p2_cards,
-        p1_starting_hp=p1_hp,
-        p2_starting_hp=p2_hp,
-        p1_max_ink=p1_ink,
-        p2_max_ink=p2_ink,
-        bot_difficulty=bot_difficulty,
-    )
+    try:
+        room = await game_manager.create_room(
+            ticket,
+            p1_cards,
+            p2_cards,
+            p1_starting_hp=p1_hp,
+            p2_starting_hp=p2_hp,
+            p1_max_ink=p1_ink,
+            p2_max_ink=p2_ink,
+            bot_difficulty=bot_difficulty,
+        )
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create game room — match has been rolled back",
+        )
+
+    # Commit only after room is successfully created
+    await db.commit()
     room.p1_faction = p1_deck.faction_code
     room.p2_faction = p2_deck.faction_code
     await game_manager._persist_room(room)
@@ -371,13 +380,36 @@ async def match_history(
     rows = (await db.execute(stmt)).scalars().all()
 
     items: list[MatchHistoryItem] = []
+    if not rows:
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    # Batch-fetch users and decks to avoid N+1 queries
+    user_ids = set()
+    deck_ids = set()
     for m in rows:
         is_p1 = m.p1_id == uid
         opp_id = m.p2_id if is_p1 else m.p1_id
-        opp = await db.get(User, opp_id)
+        user_ids.add(opp_id)
+        deck_ids.add(m.p1_deck_id if is_p1 else m.p2_deck_id)
+        deck_ids.add(m.p2_deck_id if is_p1 else m.p1_deck_id)
+
+    users_map: dict[uuid.UUID, User] = {}
+    if user_ids:
+        user_rows = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+        users_map = {u.id: u for u in user_rows}
+
+    decks_map: dict[uuid.UUID, Deck] = {}
+    if deck_ids:
+        deck_rows = (await db.execute(select(Deck).where(Deck.id.in_(deck_ids)))).scalars().all()
+        decks_map = {d.id: d for d in deck_rows}
+
+    for m in rows:
+        is_p1 = m.p1_id == uid
+        opp_id = m.p2_id if is_p1 else m.p1_id
+        opp = users_map.get(opp_id)
         res = _match_result(m, uid)
-        my_deck = await db.get(Deck, m.p1_deck_id if is_p1 else m.p2_deck_id)
-        opp_deck = await db.get(Deck, m.p2_deck_id if is_p1 else m.p1_deck_id)
+        my_deck = decks_map.get(m.p1_deck_id if is_p1 else m.p2_deck_id)
+        opp_deck = decks_map.get(m.p2_deck_id if is_p1 else m.p1_deck_id)
 
         items.append(
             MatchHistoryItem(

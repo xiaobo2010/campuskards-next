@@ -204,6 +204,12 @@ export class GameWsClient {
   send(event: string, payload: Record<string, unknown> = {}): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ event, payload }));
+    } else {
+      this.handlers.onError?.(
+        this.ws
+          ? `连接未就绪（状态：${this.ws.readyState}）`
+          : "已断开连接，请刷新页面"
+      );
     }
   }
 

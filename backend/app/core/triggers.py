@@ -87,15 +87,15 @@ def check_traps_on_play(game: GameState, event: PlayEvent) -> bool:
 
 
 def fire_opponent_play_hooks(game: GameState, event: PlayEvent) -> None:
-    """Units with '对手每打出' / reactive text on the active player's side."""
+    """Units with '对手每打出' / reactive text on the opponent's side (defending player)."""
     from . import effect_engine
 
-    actor = event.actor
-    side = game.battlefield.side_for(actor)
+    defender = 3 - event.actor
+    side = game.battlefield.side_for(defender)
     for unit in side.all_units:
         text = unit.effect_text or ""
         if "对手每打出" in text:
-            effect_engine.execute_reactive_text(game, actor, unit, text, event)
+            effect_engine.execute_reactive_text(game, defender, unit, text, event)
 
 
 def fire_defender_reactive_units(game: GameState, event: PlayEvent) -> None:

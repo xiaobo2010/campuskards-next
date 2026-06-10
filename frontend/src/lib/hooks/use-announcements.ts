@@ -37,7 +37,7 @@ export function useUpdateAnnouncement() {
       ...data
     }: { id: string } & AnnouncementUpdateIn) =>
       apiFetch<Announcement>(`/api/admin/announcements/${id}`, {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(data),
       }),
     onSuccess: () => {
