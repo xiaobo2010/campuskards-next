@@ -1,3 +1,6 @@
+
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -18,6 +21,7 @@ FRAGMENT_VALUES = {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary"
 
 class AddCollectionRequest(BaseModel):
     count: int = Field(default=1, ge=1)
+    target_user_id: str | None = None
 
 
 class ConvertRequest(BaseModel):
@@ -60,16 +64,26 @@ async def add_to_collection(
     if not card:
         raise HTTPException(status_code=404, detail="卡牌不存在")
 
+    target_id = _admin.id
+    if body.target_user_id:
+        try:
+            target_id = uuid.UUID(body.target_user_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="无效的用户ID")
+        target_user = await db.get(User, target_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="目标用户不存在")
+
     result = await db.execute(
-        select(UserCard).where(UserCard.user_id == _admin.id, UserCard.card_id == card_id)
+        select(UserCard).where(UserCard.user_id == target_id, UserCard.card_id == card_id)
     )
     uc = result.scalar_one_or_none()
     if uc:
         uc.count += body.count
     else:
-        db.add(UserCard(user_id=_admin.id, card_id=card_id, count=body.count, level=1, fragments=0))
+        db.add(UserCard(user_id=target_id, card_id=card_id, count=body.count, level=1, fragments=0))
     await db.commit()
-    return {"card_id": card_id, "added": body.count}
+    return {"card_id": card_id, "added": body.count, "target_user_id": str(target_id)}
 
 
 @router.delete("/{card_id}")

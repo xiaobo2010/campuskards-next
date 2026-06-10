@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import String, Text, Integer, Boolean, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Date, String, Text, Integer, Boolean, ForeignKey, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -149,7 +149,7 @@ class UserCheckin(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    checkin_date: Mapped[datetime] = mapped_column(server_default=func.now())
+    checkin_date: Mapped[date] = mapped_column(Date, server_default=func.current_date())
     streak: Mapped[int] = mapped_column(default=1)
 
     __table_args__ = (

@@ -5,11 +5,12 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models import User
+from app.models import User, UserCheckin
 from app.api.auth import _get_current_user
 
 router = APIRouter(prefix="/api/checkin", tags=["checkin"])
@@ -44,34 +45,32 @@ def _next_reward(streak: int) -> dict:
 
 
 async def _get_streak_info(db: AsyncSession, user_id: uuid.UUID) -> tuple[int, bool, int]:
-    today = date.today()
-    yesterday = today - timedelta(days=1)
+    today_date = date.today()
+    yesterday = today_date - timedelta(days=1)
 
-    today_result = await db.execute(
-        text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": user_id, "d": today},
+    today_stmt = select(UserCheckin).where(
+        UserCheckin.user_id == user_id,
+        UserCheckin.checkin_date == today_date,
     )
-    today_row = today_result.scalar()
-    if today_row is not None:
-        total = (
-            await db.execute(
-                text("SELECT COUNT(*) FROM user_checkins WHERE user_id = :uid"),
-                {"uid": user_id},
-            )
-        ).scalar() or 0
-        return int(today_row), True, int(total)
+    today_result = await db.execute(today_stmt)
+    today_checkin = today_result.scalar_one_or_none()
 
-    yesterday_result = await db.execute(
-        text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": user_id, "d": yesterday},
+    total_stmt = select(func.count()).select_from(UserCheckin).where(
+        UserCheckin.user_id == user_id,
     )
-    yesterday_streak = int(yesterday_result.scalar() or 0)
-    total = (
-        await db.execute(
-            text("SELECT COUNT(*) FROM user_checkins WHERE user_id = :uid"),
-            {"uid": user_id},
-        )
-    ).scalar() or 0
+
+    if today_checkin is not None:
+        total = (await db.execute(total_stmt)).scalar() or 0
+        return today_checkin.streak, True, int(total)
+
+    yesterday_stmt = select(UserCheckin).where(
+        UserCheckin.user_id == user_id,
+        UserCheckin.checkin_date == yesterday,
+    )
+    yesterday_result = await db.execute(yesterday_stmt)
+    yesterday_checkin = yesterday_result.scalar_one_or_none()
+    yesterday_streak = yesterday_checkin.streak if yesterday_checkin else 0
+    total = (await db.execute(total_stmt)).scalar() or 0
     return yesterday_streak, False, int(total)
 
 
@@ -95,14 +94,15 @@ async def daily_checkin(
     user: User = Depends(_get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CheckinResponse:
-    today = date.today()
-    yesterday = today - timedelta(days=1)
+    today_date = date.today()
+    yesterday = today_date - timedelta(days=1)
 
-    today_result = await db.execute(
-        text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": user.id, "d": today},
+    today_stmt = select(UserCheckin).where(
+        UserCheckin.user_id == user.id,
+        UserCheckin.checkin_date == today_date,
     )
-    if today_result.scalar() is not None:
+    today_result = await db.execute(today_stmt)
+    if today_result.scalar_one_or_none() is not None:
         streak, _, total = await _get_streak_info(db, user.id)
         return CheckinResponse(
             streak=streak,
@@ -110,32 +110,35 @@ async def daily_checkin(
             total_checkins=total,
         )
 
-    yesterday_result = await db.execute(
-        text("SELECT streak FROM user_checkins WHERE user_id = :uid AND checkin_date = :d"),
-        {"uid": user.id, "d": yesterday},
+    yesterday_stmt = select(UserCheckin).where(
+        UserCheckin.user_id == user.id,
+        UserCheckin.checkin_date == yesterday,
     )
-    yesterday_streak = int(yesterday_result.scalar() or 0)
+    yesterday_result = await db.execute(yesterday_stmt)
+    yesterday_checkin = yesterday_result.scalar_one_or_none()
+    yesterday_streak = yesterday_checkin.streak if yesterday_checkin else 0
     new_streak = yesterday_streak + 1 if yesterday_streak > 0 else 1
     ink_awarded = _ink_reward(new_streak)
 
-    user.ink = (user.ink or 0) + ink_awarded
+    db.add(UserCheckin(user_id=user.id, checkin_date=today_date, streak=new_streak))
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        streak, _, total = await _get_streak_info(db, user.id)
+        return CheckinResponse(
+            streak=streak,
+            reward={"ink": 0},
+            total_checkins=total,
+        )
 
-    await db.execute(
-        text(
-            "INSERT INTO user_checkins (user_id, checkin_date, streak) "
-            "VALUES (:uid, :d, :streak) "
-            "ON CONFLICT (user_id, checkin_date) DO NOTHING"
-        ),
-        {"uid": user.id, "d": today, "streak": new_streak},
-    )
+    user.ink = (user.ink or 0) + ink_awarded
     await db.commit()
 
-    total = (
-        await db.execute(
-            text("SELECT COUNT(*) FROM user_checkins WHERE user_id = :uid"),
-            {"uid": user.id},
-        )
-    ).scalar() or 0
+    total_stmt = select(func.count()).select_from(UserCheckin).where(
+        UserCheckin.user_id == user.id,
+    )
+    total = (await db.execute(total_stmt)).scalar() or 0
 
     return CheckinResponse(
         streak=new_streak,

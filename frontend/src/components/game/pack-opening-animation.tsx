@@ -397,12 +397,13 @@ export function PackOpeningAnimation({
   }, [phase, startDrawing, revealNext]);
 
   const handleClose = useCallback(async () => {
-    if (selectorMode && phase !== "submitting" && phase !== "sealed" && phase !== "rerolling") {
+    if (selectorMode && phase !== "submitting" && phase !== "rerolling") {
       setPhase("submitting");
       try {
         await selectorMode.onSkip();
-      } finally {
         onClose();
+      } catch {
+        setPhase("selecting");
       }
       return;
     }

@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.database import async_session
 from app.core.game_engine import GameError
 from app.core.security import decode_token
+from app.models import User
 from app.services.game_manager import game_manager
 
 logger = logging.getLogger(__name__)
@@ -21,7 +23,17 @@ async def _authenticate_ws(token: str | None) -> str | None:
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         return None
-    return payload.get("sub")
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (ValueError, KeyError):
+        return None
+    async with async_session() as db:
+        user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            return None
+        if user.token_version != (payload.get("ver") or 0):
+            return None
+        return str(user.id)
 
 
 @ws_router.websocket("/ws/game/{match_id}")
