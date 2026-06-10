@@ -139,6 +139,7 @@ function LoginForm() {
                 placeholder="请输入用户名或邮箱"
                 value={loginVal}
                 onChange={(e) => setLoginVal(e.target.value)}
+                onInput={(e) => setLoginVal((e.target as HTMLInputElement).value)}
                 className="bg-zinc-800/50 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-indigo-500"
                 autoComplete="username"
                 required
@@ -155,6 +156,7 @@ function LoginForm() {
                 placeholder="请输入密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
                 className="bg-zinc-800/50 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-indigo-500"
                 autoComplete="current-password"
                 required
@@ -195,6 +197,7 @@ function LoginForm() {
                       <Input
                         value={rpUser}
                         onChange={(e) => setRpUser(e.target.value)}
+                        onInput={(e) => setRpUser((e.target as HTMLInputElement).value)}
                         className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
                         required
                       />
@@ -205,6 +208,7 @@ function LoginForm() {
                         type="password"
                         value={rpNewPwd}
                         onChange={(e) => setRpNewPwd(e.target.value)}
+                        onInput={(e) => setRpNewPwd((e.target as HTMLInputElement).value)}
                         className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
                         required
                       />
@@ -217,6 +221,7 @@ function LoginForm() {
                       <Input
                         value={rpKey}
                         onChange={(e) => setRpKey(e.target.value)}
+                        onInput={(e) => setRpKey((e.target as HTMLInputElement).value)}
                         className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
                         required
                       />
@@ -224,7 +229,7 @@ function LoginForm() {
                     <Button
                       type="submit"
                       className="w-full bg-purple-600 hover:bg-purple-500 text-white"
-                      disabled={rpSubmitting}
+                      disabled={!rpUser || !rpNewPwd || !rpKey || rpSubmitting}
                     >
                       {rpSubmitting ? "重置中..." : "重置密码"}
                     </Button>

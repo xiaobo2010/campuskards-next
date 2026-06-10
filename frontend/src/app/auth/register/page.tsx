@@ -111,6 +111,7 @@ export default function RegisterPage() {
                 placeholder="3-32个字符"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
                 required
                 autoFocus
                 disabled={submitting}
@@ -124,6 +125,7 @@ export default function RegisterPage() {
                 placeholder="example@campus.edu"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
                 required
                 disabled={submitting}
               />
@@ -136,6 +138,7 @@ export default function RegisterPage() {
                 placeholder="至少8个字符"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
                 required
                 disabled={submitting}
               />
@@ -148,6 +151,7 @@ export default function RegisterPage() {
                 placeholder="再次输入密码"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                onInput={(e) => setConfirmPassword((e.target as HTMLInputElement).value)}
                 required
                 disabled={submitting}
               />

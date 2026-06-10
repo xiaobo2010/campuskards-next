@@ -143,48 +143,60 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    credentials: "include",
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      credentials: "include",
+      headers,
+    });
 
-  // ---- 401: attempt token refresh (skip for auth endpoints to avoid loops) ----
-  if (res.status === 401 && !headers["X-Retry"] && !path.includes("/auth/refresh") && !path.includes("/auth/login")) {
-    const refreshed = await tryRefreshToken();
-    if (refreshed) {
-      // Retry original request with refreshed token
-      const newAt = getToken(ACCESS_KEY);
-      if (newAt) {
-        headers["Authorization"] = `Bearer ${newAt}`;
+    // ---- 401: attempt token refresh (skip for auth endpoints to avoid loops) ----
+    if (res.status === 401 && !headers["X-Retry"] && !path.includes("/auth/refresh") && !path.includes("/auth/login")) {
+      const refreshed = await tryRefreshToken();
+      if (refreshed) {
+        // Retry original request with refreshed token
+        const newAt = getToken(ACCESS_KEY);
+        if (newAt) {
+          headers["Authorization"] = `Bearer ${newAt}`;
+        }
+        headers["X-Retry"] = "1";
+        return apiFetch<T>(path, { ...options, headers });
       }
-      headers["X-Retry"] = "1";
-      return apiFetch<T>(path, { ...options, headers });
+      // Refresh failed – clear tokens (middleware handles redirect)
+      clearTokens();
     }
-    // Refresh failed – clear tokens (middleware handles redirect)
-    clearTokens();
-  }
 
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    try {
-      const body = await res.json();
-      message = body.detail ? formatApiDetail(body.detail) : body.message || message;
-      throw new ApiError(res.status, message, body);
-    } catch (e) {
-      if (e instanceof ApiError) throw e;
-      throw new ApiError(res.status, message);
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        message = body.detail ? formatApiDetail(body.detail) : body.message || message;
+        throw new ApiError(res.status, message, body);
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+        throw new ApiError(res.status, message);
+      }
     }
-  }
 
-  if (res.status === 204) return undefined as T;
-  const contentType = res.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    const text = await res.text();
-    if (!text.trim()) return undefined as T;
-    return JSON.parse(text) as T;
+    if (res.status === 204) return undefined as T;
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const text = await res.text();
+      if (!text.trim()) return undefined as T;
+      return JSON.parse(text) as T;
+    }
+    return undefined as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(408, "请求超时，请检查网络连接后重试");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return undefined as T;
 }
 
 /** Normalize paginated API payloads (handles legacy bare-array responses). */
