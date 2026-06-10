@@ -194,68 +194,55 @@ check_and_migrate_database() {
   _log_ok "数据库迁移完成"
 }
 
-# ── Next.js standalone：复制 static 与 public ──
+# ── Next.js standalone：验证 static 与 public（npm postbuild 已自动复制，此处仅为安全网）──
 copy_standalone_assets() {
   local frontend_dir="$1"
   cd "$frontend_dir"
 
   if [[ ! -d ".next/standalone" ]]; then
-    _log_warn "未找到 .next/standalone/，跳过静态资源复制（可能未启用 output:standalone）"
+    _log_warn "未找到 .next/standalone/，跳过（可能未启用 output:standalone）"
     return 0
   fi
 
-  # ── 检查构建 ID 是否匹配，处理过期缓存 ──
-  local main_build_id standalone_build_id
-  main_build_id=""
-  standalone_build_id=""
-  if [[ -f ".next/BUILD_ID" ]]; then
-    main_build_id=$(cat ".next/BUILD_ID")
-  fi
-  if [[ -f ".next/standalone/.next/BUILD_ID" ]]; then
-    standalone_build_id=$(cat ".next/standalone/.next/BUILD_ID")
-  fi
-
-  if [[ -n "$main_build_id" && "$main_build_id" != "$standalone_build_id" ]]; then
-    _log_warn "构建 ID 不匹配 (main: ${main_build_id}, standalone: ${standalone_build_id:-无})"
-    _log_info "清理旧 standalone 静态资源..."
-    rm -rf .next/standalone/.next/static .next/standalone/public
-  fi
-
-  _log_info "复制 standalone 静态资源 (.next/static → .next/standalone/.next/static)..."
-  mkdir -p .next/standalone/.next
-  cp -r .next/static .next/standalone/.next/static
-
-  if [[ -d "public" ]]; then
-    _log_info "复制 public/ → .next/standalone/public/"
-    cp -r public .next/standalone/public
-  fi
-
-  # ── 构建验证 ──
   local static_dir="${frontend_dir}/.next/standalone/.next/static"
-  local missing=0
 
-  if [[ ! -d "${static_dir}/chunks" ]]; then
-    _log_error "standalone 缺少 chunks/ 目录，JS 资源将 404！"
-    missing=999
-  else
-    local js_count
-    js_count=$(find "${static_dir}/chunks" -name '*.js' 2>/dev/null | wc -l)
-    if [[ "$js_count" -eq 0 ]]; then
-      _log_error "standalone chunks/ 中无 JS 文件，构建可能不完整"
-      missing=998
-    else
-      _log_ok "standalone 验证通过 (${js_count} JS chunks, BUILD_ID=${main_build_id:-?})"
+  # ── 安全网：如果 postbuild 未执行（如直接运行 next build 而非 npm run build），补复制 ──
+  if [[ ! -d "${static_dir}/chunks" ]] || [[ -z "$(find "${static_dir}/chunks" -name '*.js' 2>/dev/null | head -1)" ]]; then
+    _log_warn "standalone 静态资源缺失，执行补复制（npm postbuild 可能未运行）..."
+    mkdir -p .next/standalone/.next
+    cp -r .next/static .next/standalone/.next/static
+    if [[ -d "public" ]]; then
+      cp -r public .next/standalone/public
     fi
   fi
 
-  # 同时检查 public 资产
+  # ── 验证 ──
+  local main_build_id=""
+  if [[ -f ".next/BUILD_ID" ]]; then
+    main_build_id=$(cat ".next/BUILD_ID")
+  fi
+
+  if [[ ! -d "${static_dir}/chunks" ]]; then
+    _log_error "standalone 缺少 chunks/ 目录，JS 资源将 404！"
+    return 1
+  fi
+
+  local js_count
+  js_count=$(find "${static_dir}/chunks" -name '*.js' 2>/dev/null | wc -l)
+  if [[ "$js_count" -eq 0 ]]; then
+    _log_error "standalone chunks/ 中无 JS 文件，构建可能不完整"
+    return 1
+  fi
+
+  _log_ok "standalone 静态资源就绪 (${js_count} JS chunks, BUILD_ID=${main_build_id:-?})"
+
   if [[ -d ".next/standalone/public" ]]; then
     local pub_count
     pub_count=$(find ".next/standalone/public" -type f 2>/dev/null | wc -l)
     _log_info "public/ 资产: ${pub_count} 个文件"
   fi
 
-  return $([[ $missing -eq 0 ]] && echo 0 || echo 1)
+  return 0
 }
 
 # ── 从 service 文件读取前端端口 ──
