@@ -99,17 +99,36 @@ else
 fi
 
 # ═══════════════════════════════════════════════
-# 阶段 4: 前端构建
+# 阶段 4: 前端构建（修复版本冲突）
 # ═══════════════════════════════════════════════
 if [[ "$SKIP_FRONTEND" != "true" ]]; then
   log_info "阶段 4/6: 构建前端..."
   cd "${PROJECT_DIR}/frontend"
 
-  npm ci 2>&1 | tee -a "$LOG_FILE"
-  log_info "npm ci 完成"
+  # 自动降级 eslint 版本（如果检测到使用 9.x）
+  if grep -q '"eslint": "^9"' package.json; then
+    log_info "检测到 eslint 9，降级到兼容版本..."
+    sed -i 's/"eslint": "^9"/"eslint": "^8.57.0"/' package.json
+  fi
 
+  # 处理 package-lock.json 不一致问题
+  if [[ -f "package-lock.json" ]]; then
+    log_info "删除旧的 package-lock.json 以避免版本冲突..."
+    rm -f package-lock.json
+  fi
+  if [[ -d "node_modules" ]]; then
+    log_info "删除旧的 node_modules 以确保干净安装..."
+    rm -rf node_modules
+  fi
+
+  # 使用 --legacy-peer-deps 安装依赖
+  log_info "安装依赖 (npm install --legacy-peer-deps)..."
+  npm install --legacy-peer-deps 2>&1 | tee -a "$LOG_FILE"
+  log_ok "依赖安装完成"
+
+  log_info "执行前端构建 (npm run build)..."
   npm run build 2>&1 | tee -a "$LOG_FILE"
-  log_info "npm run build 完成"
+  log_ok "npm run build 完成"
 
   if ! copy_standalone_assets "${PROJECT_DIR}/frontend" 2>&1 | tee -a "$LOG_FILE"; then
     log_error "静态资源复制或验证失败！"
