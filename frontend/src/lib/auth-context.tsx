@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [userInk, setUserInk] = useState<number | null>(null);
   const router = useRouter();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line
   const toastRef = useRef<any>(null);
 
   // Dynamically import toast to avoid SSR issues
