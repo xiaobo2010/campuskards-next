@@ -30,7 +30,6 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" | tee -a "$LOG_FILE"; }
 
 # ── 并发锁 ──
 if [[ -f "$LOCK_FILE" ]]; then
-  local pid_
   pid_=$(cat "$LOCK_FILE" 2>/dev/null || true)
   if [[ -n "$pid_" ]] && kill -0 "$pid_" 2>/dev/null; then
     log_error "升级已在运行中 (PID: $pid_)，请等待或删除锁文件: $LOCK_FILE"
@@ -69,7 +68,6 @@ cd "$PROJECT_DIR"
 git fetch origin "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
 git checkout "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
 git pull origin "$BRANCH" 2>&1 | tee -a "$LOG_FILE"
-local commit_hash
 commit_hash=$(git rev-parse --short HEAD)
 log_ok "代码已更新 (${BRANCH} @ ${commit_hash})"
 
@@ -120,7 +118,6 @@ if [[ "$SKIP_FRONTEND" != "true" ]]; then
 
   # 构建产物大小
   if [[ -d ".next" ]]; then
-    local build_size
     build_size=$(du -sh .next 2>/dev/null | cut -f1)
     log_info "构建产物: .next/ (${build_size})"
   fi
@@ -169,7 +166,7 @@ fi
 # ═══════════════════════════════════════════════
 log_info "阶段 6/6: 部署验证..."
 
-local exit_code=0
+exit_code=0
 
 if [[ "$SKIP_BACKEND" != "true" && "$SKIP_RESTART" != "true" ]]; then
   if sudo systemctl is-active --quiet campuskards-backend; then
@@ -185,7 +182,6 @@ if [[ "$SKIP_FRONTEND" != "true" && "$SKIP_RESTART" != "true" ]]; then
     sudo systemctl status campuskards-frontend --no-pager -l 2>&1 | head -3 | tee -a "$LOG_FILE"
 
     # HTTP 健康检查
-    local frontend_port
     frontend_port=$(get_frontend_port)
     sleep 2
     if curl -sfo /dev/null "http://127.0.0.1:${frontend_port}/" 2>/dev/null; then
