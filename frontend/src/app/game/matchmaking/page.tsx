@@ -100,7 +100,7 @@ export default function MatchmakingPage() {
       setMatchState("found");
       toast.success("训练对局已创建，正在进入...");
       setTimeout(() => {
-        router.push(`/game/play?match_id=${res.match_id}`);
+        router.push(`/game/play?matchId=${res.match_id}`);
       }, 800);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "无法开始 PVE 对局";
@@ -120,7 +120,7 @@ export default function MatchmakingPage() {
         setMatchState("found");
         toast.success("匹配成功！正在进入对局...");
         setTimeout(() => {
-          router.push(`/game/play?match_id=${res.match_id}`);
+          router.push(`/game/play?matchId=${res.match_id}`);
         }, 800);
         return;
       }
@@ -146,7 +146,7 @@ export default function MatchmakingPage() {
         if (matchId) {
           setCurrentGame(matchId, null);
           toast.success("已匹配到对手，正在进入对局...");
-          setTimeout(() => router.push(`/game/play?match_id=${matchId}`), 800);
+          setTimeout(() => router.push(`/game/play?matchId=${matchId}`), 800);
           return;
         }
       }
