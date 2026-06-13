@@ -33,9 +33,19 @@ export const useMatchStore = create<MatchState>((set) => ({
   ...initialState,
 
   setCurrentGame: (gameId, opponent = null) =>
-    set({
-      currentGameId: gameId,
-      opponent: opponent ?? null,
+    set((state) => {
+      const nextOpponent = opponent ?? null;
+      if (state.currentGameId === gameId && state.opponent === nextOpponent) {
+        return state;
+      }
+      return {
+        currentGameId: gameId,
+        opponent: nextOpponent,
+        gameState: null,
+        connectionStatus: "idle" as WsConnectionStatus,
+        lastError: null,
+        selectedAttackerUid: null,
+      };
     }),
 
   setGameState: (state) =>

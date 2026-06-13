@@ -198,7 +198,8 @@ function PlayPageInner() {
   const wsRef = useRef<GameWsClient | null>(null);
   const [matchElapsed, setMatchElapsed] = useState(0);
 
-  const matchIdFromUrl = searchParams.get("matchId");
+  const matchIdFromUrl =
+    searchParams.get("matchId") ?? searchParams.get("match_id");
   const storedMatchId = useMatchStore((s) => s.currentGameId);
   const opponent = useMatchStore((s) => s.opponent);
   const gameState = useMatchStore((s) => s.gameState);
